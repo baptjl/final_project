@@ -156,5 +156,8 @@ def download(filename):
 
 
 if __name__ == '__main__':
-    # Run only on localhost by default for privacy
-    app.run(host='127.0.0.1', port=8501, debug=True)
+    # Bind to host/port from environment for cloud deployment (Render/Heroku/Railway)
+    port = int(os.environ.get('PORT', 8501))
+    host = os.environ.get('HOST', '0.0.0.0')
+    debug = os.environ.get('FLASK_DEBUG', '0') in ('1', 'true', 'True')
+    app.run(host=host, port=port, debug=debug)
