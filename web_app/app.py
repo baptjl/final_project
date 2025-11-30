@@ -21,6 +21,9 @@ ALLOWED_EXTENSIONS = {'.html', '.htm'}
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
+# Toggle LLM-based label mapping (Ollama). Default via env.
+USE_LLM_DEFAULT = os.environ.get('USE_LLM_DEFAULT', '0').lower() in {'1', 'true', 'yes', 'on'}
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB uploads
 app.secret_key = os.environ.get('WEB_APP_SECRET', 'dev-secret')
@@ -70,6 +73,12 @@ def index():
         url = request.form.get('url', '').strip()
         file = request.files.get('file')
         company = request.form.get('company', '').strip()
+        use_llm_flags = request.form.getlist('use_llm_flag')
+        use_llm = None
+        if use_llm_flags:
+            use_llm = '1' in use_llm_flags
+        else:
+            use_llm = USE_LLM_DEFAULT
 
         if not company:
             flash('Please provide a company name')
@@ -121,6 +130,8 @@ def index():
         script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'unified_pipeline.py'))
 
         cmd = [python_exec, script_path, '--html', saved_path, '--company', company, '--mid-product', mid_path, '--final', final_path]
+        if use_llm:
+            cmd.append('--use-llm')
 
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -158,7 +169,7 @@ def index():
 
         return render_template('result.html', stdout=stdout, stderr=stderr, final_filename=final_for_template)
 
-    return render_template('index.html')
+    return render_template('index.html', use_llm_default=USE_LLM_DEFAULT)
 
 
 @app.route('/download/<filename>')

@@ -25,6 +25,12 @@
 
         <label>Company Name</label>
         <input type="text" name="company" id="company" placeholder="e.g. Apple Inc." required />
+
+        <label style="display:block; margin-top:8px;">
+          <input type="hidden" name="use_llm_flag" value="0" />
+          <input type="checkbox" name="use_llm_flag" value="1" {% if use_llm_default %}checked{% endif %} />
+          Use LLM label mapping (requires Ollama running)
+        </label>
         <p style="margin-top:12px"><button type="submit">Generate</button></p>
       </form>
     </div>
