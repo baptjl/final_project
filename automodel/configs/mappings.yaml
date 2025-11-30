@@ -1,0 +1,30 @@
+"Net sales": Revenue
+"Total net sales": Revenue
+"Net sales of products": Revenue
+"Net sales of services": Revenue
+
+"Cost of sales": COGS
+"Total cost of sales": COGS
+
+"Gross margin": Gross Profit
+"Gross profit": Gross Profit
+
+"Research and development": Research & Development
+
+"Selling, general and administrative": General & Administrative
+"Selling, general and administrative expenses": General & Administrative
+
+"Operating income": "Operating Income (EBIT)"
+"Operating income (loss)": "Operating Income (EBIT)"
+
+"Other income/(expense), net": "Other Income (Expense)"
+"Other income (expense), net": "Other Income (Expense)"
+
+"Income before provision for income taxes": "Income Before Taxes"
+"Income before income taxes": "Income Before Taxes"
+
+"Provision for income taxes": "Income Tax Expense"
+"Income tax expense": "Income Tax Expense"
+
+"Net income": "Net Income"
+"Net income attributable to Apple Inc.": "Net Income"

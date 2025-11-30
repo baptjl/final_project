@@ -1,0 +1,28 @@
+label_raw,year,value,coa
+Total net sales,2025,391035000000.0,Revenue
+Total net sales,2024,383285000000.0,Revenue
+Total net sales,2023,383285000000.0,Revenue
+Total cost of sales,2025,-210352000000.0,COGS
+Total cost of sales,2024,-214137000000.0,COGS
+Total cost of sales,2023,-214137000000.0,COGS
+Gross margin,2025,180683000000.0,Gross Profit
+Gross margin,2024,169148000000.0,Gross Profit
+Gross margin,2023,169148000000.0,Gross Profit
+Research and development,2025,-31370000000.0,Research & Development
+Research and development,2024,-29915000000.0,Research & Development
+Research and development,2023,-29915000000.0,Research & Development
+"Selling, general and administrative",2025,-26097000000.0,General & Administrative
+"Selling, general and administrative",2024,-24932000000.0,General & Administrative
+"Selling, general and administrative",2023,-24932000000.0,General & Administrative
+Operating income,2025,123216000000.0,Operating Income (EBIT)
+Operating income,2024,114301000000.0,Operating Income (EBIT)
+Operating income,2023,114301000000.0,Operating Income (EBIT)
+"Other income/(expense), net",2025,-269000000.0,Other Income (Expense)
+Income before provision for income taxes,2025,123485000000.0,Income Before Taxes
+Income before provision for income taxes,2024,113736000000.0,Income Before Taxes
+Income before provision for income taxes,2023,113736000000.0,Income Before Taxes
+Provision for income taxes,2025,-29749000000.0,Income Tax Expense
+Provision for income taxes,2024,-16741000000.0,Income Tax Expense
+Provision for income taxes,2023,-16741000000.0,Income Tax Expense
+Net income,2025,93736000000.0,Net Income
+Net income,2023,96995000000.0,Net Income

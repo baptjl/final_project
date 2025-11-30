@@ -1,0 +1,14 @@
+.venv/
+web_app/outputs/
+web_app/uploads/
+*.pyc
+*.log
+__pycache__/
+.env
+*.xlsx
+.DS_Store
+node_modules/
+.env.local
+# Keep required Excel templates for finmod
+!final-project_finmod-main/Inputs_Historical/Baseline IS.xlsx
+!final-project_finmod-main/Inputs_Historical/Baseline IS Complex.xlsx

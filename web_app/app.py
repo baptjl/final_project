@@ -130,17 +130,33 @@ def index():
 
         stdout = proc.stdout
         stderr = proc.stderr
+        returncode = proc.returncode
+
+        # If pipeline failed, return an error (so the browser doesn't download HTML as .xlsx)
+        if returncode != 0:
+            error_msg = f"Pipeline failed (exit {returncode}). See logs below."
+            if request.form.get('ajax') == '1':
+                body = f"{error_msg}\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}"
+                return Response(body, status=500, mimetype='text/plain')
+            flash(error_msg)
+            return render_template('result.html', stdout=stdout, stderr=stderr, final_filename=None)
 
         # If this was an AJAX POST (from the JS UI), return the final Excel file directly
         if request.form.get('ajax') == '1':
-            if os.path.exists(final_path):
+            if os.path.exists(final_path) and os.path.getsize(final_path) > 0:
                 # send file as attachment so the browser downloads it
                 return send_file(final_path, as_attachment=True, download_name=final_name)
             else:
-                flash('Final file not found after processing')
-                return redirect(request.url)
+                body = f"Final file not found after processing.\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}"
+                return Response(body, status=500, mimetype='text/plain')
 
-        return render_template('result.html', stdout=stdout, stderr=stderr, final_filename=final_name)
+        if not os.path.exists(final_path) or os.path.getsize(final_path) == 0:
+            flash('Final file not found after processing')
+            final_for_template = None
+        else:
+            final_for_template = final_name
+
+        return render_template('result.html', stdout=stdout, stderr=stderr, final_filename=final_for_template)
 
     return render_template('index.html')
 
