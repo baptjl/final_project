@@ -230,10 +230,16 @@ def step1_extract_from_html(html_path: Path, skip_llm: bool = True) -> Path:
         else:
             from automodel.src.llm.ollama_client import map_label_to_coa
             uniq = mapped.loc[unm, "label_raw"].dropna().unique().tolist()
-            llm_map = {
-                lbl: map_label_to_coa(lbl, coa_candidates) for lbl in uniq
-            }
-            mapped.loc[unm, "coa"] = mapped.loc[unm, "label_raw"].map(llm_map)
+            try:
+                llm_map = {
+                    lbl: map_label_to_coa(lbl, coa_candidates) for lbl in uniq
+                }
+            except Exception as e:
+                # If Ollama/LLM is unavailable, fall back to heuristic-only mapping
+                print(f"[WARN] LLM mapping failed ({e}); continuing without LLM.")
+                llm_map = {}
+            if llm_map:
+                mapped.loc[unm, "coa"] = mapped.loc[unm, "label_raw"].map(llm_map)
     
     # Keep only P&L lines
     REVENUE_COAS = {"Revenue", "Interest Income"}

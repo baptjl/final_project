@@ -142,6 +142,9 @@ def index():
         stdout = proc.stdout
         stderr = proc.stderr
         returncode = proc.returncode
+        if use_llm and "LLM mapping failed" in stdout + stderr:
+            # Surface a friendly note when LLM is unavailable; pipeline falls back to heuristics
+            flash("LLM was requested but unavailable; fell back to non-LLM mapping.")
 
         # If pipeline failed, return an error (so the browser doesn't download HTML as .xlsx)
         if returncode != 0:
