@@ -2,6 +2,8 @@
 "Total net sales": Revenue
 "Net sales of products": Revenue
 "Net sales of services": Revenue
+"Total revenue": Revenue
+"Cost of sales (exclusive of depreciation and amortization)": COGS
 
 "Cost of sales": COGS
 "Total cost of sales": COGS

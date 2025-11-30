@@ -40,7 +40,7 @@ SCALE_FACTORS = {
     "billions": 1_000.0,  # billions → millions
 }
 
-YEAR_RE = re.compile(r"(20\d{2})", re.I)
+YEAR_RE = re.compile(r"(?<!\d)(20\d{2})(?!\d)", re.I)
 
 
 def custom_tidy_is(df: pd.DataFrame) -> pd.DataFrame:
@@ -48,6 +48,21 @@ def custom_tidy_is(df: pd.DataFrame) -> pd.DataFrame:
     Custom tidying for income statement tables from pd.read_html.
     Handles tables with complex headers and numeric columns.
     """
+    # Drop completely empty columns to simplify year detection
+    df = df.dropna(axis=1, how="all").reset_index(drop=True)
+
+    # Remove header rows that are just the "(in thousands...)" note
+    header_note_re = re.compile(r"in thousands", re.I)
+    rows_to_drop = []
+    for i in range(min(4, len(df))):
+        row_blob = " ".join(df.iloc[i].astype(str).tolist())
+        if header_note_re.search(row_blob.lower()):
+            # Keep the row if it also contains explicit years (it might be the year header)
+            if not YEAR_RE.search(row_blob):
+                rows_to_drop.append(i)
+    if rows_to_drop:
+        df = df.drop(index=rows_to_drop).reset_index(drop=True)
+
     # Find year columns
     year_cols = {}
     header_blob = " ".join([str(c) for c in df.columns]) + " " + df.head(6).astype(str).to_string()
@@ -62,51 +77,72 @@ def custom_tidy_is(df: pd.DataFrame) -> pd.DataFrame:
     if not years_found:
         return pd.DataFrame(columns=["label_raw", "year", "value", "scale_hint"])
     
-    # Try to map columns to years
-    # Look for columns with numeric data
-    numeric_cols = []
-    for i, col in enumerate(df.columns):
-        try:
-            # Try to convert column to numeric
-            numeric_vals = pd.to_numeric(df[col], errors='coerce').dropna()
-            if len(numeric_vals) > 0:
-                numeric_cols.append((i, col))
-        except Exception:
-            pass
-
-    numeric_col_idxs = {i for i, _ in numeric_cols}
-
-    # Prefer column-specific year detection (use header + first rows)
-    col_year_map = {}
-    for i in range(len(df.columns)):
-        if i not in numeric_col_idxs:
-            continue
-        parts = [str(df.columns[i])]
+    # Try to map columns to years.
+    # Strategy: look at the first few rows per column for a year token, then map that
+    # year to the nearest numeric column (current or next few columns).
+    year_map: Dict[int, int] = {}
+    for idx, col_label in enumerate(df.columns):
+        header_bits = [str(col_label)]
         for r in range(min(6, len(df))):
-            parts.append(str(df.iloc[r, i]))
-        blob = " ".join(parts)
+            header_bits.append(str(df.iloc[r, idx]))
+        blob = " ".join(header_bits)
         m = YEAR_RE.search(blob)
-        if m:
-            year = int(m.group(1))
-            if year not in col_year_map.values():
-                col_year_map[i] = year
+        if not m:
+            continue
+        year = int(m.group(1))
+        if year in year_map.values():
+            continue
+        # Pick this column or the next couple columns that actually contain numbers
+        numeric_target = None
+        for j in range(idx, min(idx + 3, len(df.columns))):
+            try:
+                col_vals = pd.to_numeric(df.iloc[:, j], errors='coerce').dropna()
+                if len(col_vals) > 0:
+                    numeric_target = df.columns[j]
+                    break
+            except Exception:
+                continue
+        numeric_target = numeric_target if numeric_target is not None else col_label
+        year_map[numeric_target] = year
 
-    if len(col_year_map) >= 1:
-        year_map = col_year_map
-    else:
-        # Fallback: take the last N numeric columns matching number of years
+    if not year_map and years_found:
+        # Fallback: use rightmost numeric-ish columns matched to detected years
+        numeric_cols = []
+        for col_label in df.columns:
+            try:
+                col_vals = pd.to_numeric(df[col_label], errors='coerce').dropna()
+                if len(col_vals) > 0:
+                    numeric_cols.append(col_label)
+            except Exception:
+                pass
         numeric_cols = numeric_cols[-len(years_found):]
-        year_map = {i: int(y) for (i, col), y in zip(numeric_cols, years_found)}
-    
+        year_map = {col_label: int(y) for col_label, y in zip(numeric_cols, years_found)}
+
     if not year_map:
         return pd.DataFrame(columns=["label_raw", "year", "value", "scale_hint"])
-    
-    # Extract data
+
+    # Choose the label column: first non-numeric-heavy column (fallback to first)
     label_col = df.columns[0]
+    best_label_col = None
+    best_score = -1
+    for col in df.columns:
+        series = df[col].dropna().astype(str)
+        if series.empty:
+            continue
+        texty = sum(1 for v in series.head(8) if not re.fullmatch(r"-?\\d+(\\.\\d+)?", str(v).replace(',', '')))
+        if texty > best_score:
+            best_score = texty
+            best_label_col = col
+    if best_label_col is not None:
+        label_col = best_label_col
+
+    # Extract data
     rows = []
     
     def to_number(x):
         s = str(x).strip().replace(",", "").replace("$", "")
+        if s.startswith("(") and s.endswith(")"):
+            s = "-" + s[1:-1]
         if s in {"", "—", "–", "-", "nan", "NaN", "N/A"}:
             return None
         try:
@@ -115,14 +151,19 @@ def custom_tidy_is(df: pd.DataFrame) -> pd.DataFrame:
             return None
     
     for _, r in df.iterrows():
-        label = str(r[label_col]).strip()
+        label = str(r.get(label_col, "")).strip()
         if not label or pd.isna(label) or label.lower() in {'nan', ''}:
+            continue
+        if header_note_re.search(label.lower()):
             continue
         
         for col_idx, year in year_map.items():
+            if col_idx not in r.index:
+                continue
             val = to_number(r[col_idx])
             if val is not None:
-                rows.append({"label_raw": label, "year": year, "value": val, "scale_hint": "millions"})
+                # Use 'units' as default so infer_scale can detect thousands/millions/billions from header
+                rows.append({"label_raw": label, "year": year, "value": val, "scale_hint": "units"})
     
     return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["label_raw", "year", "value", "scale_hint"])
 
