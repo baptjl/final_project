@@ -32,11 +32,12 @@ from automodel.src.extract.is_tidy import tidy_is
 from automodel.src.map.map_to_coa import map_labels
 from automodel.src.llm.ollama_client import infer_scale
 
+# Convert extracted values to millions for consistent downstream modeling/display
 SCALE_FACTORS = {
-    "units": 1.0,
-    "thousands": 1_000.0,
-    "millions": 1_000_000.0,
-    "billions": 1_000_000_000.0,
+    "units": 1.0 / 1_000_000.0,
+    "thousands": 1.0 / 1_000.0,
+    "millions": 1.0,
+    "billions": 1_000.0,  # billions → millions
 }
 
 YEAR_RE = re.compile(r"(20\d{2})", re.I)
@@ -70,12 +71,32 @@ def custom_tidy_is(df: pd.DataFrame) -> pd.DataFrame:
             numeric_vals = pd.to_numeric(df[col], errors='coerce').dropna()
             if len(numeric_vals) > 0:
                 numeric_cols.append((i, col))
-        except:
+        except Exception:
             pass
-    
-    # Take the last N numeric columns matching number of years
-    numeric_cols = numeric_cols[-len(years_found):]
-    year_map = {i: int(y) for (i, col), y in zip(numeric_cols, years_found)}
+
+    numeric_col_idxs = {i for i, _ in numeric_cols}
+
+    # Prefer column-specific year detection (use header + first rows)
+    col_year_map = {}
+    for i in range(len(df.columns)):
+        if i not in numeric_col_idxs:
+            continue
+        parts = [str(df.columns[i])]
+        for r in range(min(6, len(df))):
+            parts.append(str(df.iloc[r, i]))
+        blob = " ".join(parts)
+        m = YEAR_RE.search(blob)
+        if m:
+            year = int(m.group(1))
+            if year not in col_year_map.values():
+                col_year_map[i] = year
+
+    if len(col_year_map) >= 1:
+        year_map = col_year_map
+    else:
+        # Fallback: take the last N numeric columns matching number of years
+        numeric_cols = numeric_cols[-len(years_found):]
+        year_map = {i: int(y) for (i, col), y in zip(numeric_cols, years_found)}
     
     if not year_map:
         return pd.DataFrame(columns=["label_raw", "year", "value", "scale_hint"])

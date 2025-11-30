@@ -1,52 +1,44 @@
 label_raw,year,value
-Products,2025,294866000000.0
-Products,2023,298085000000.0
-Services,2025,96169000000.0
-Services,2024,85200000000.0
-Services,2023,85200000000.0
-Total net sales,2025,391035000000.0
-Total net sales,2024,383285000000.0
-Total net sales,2023,383285000000.0
-Products,2025,185233000000.0
-Products,2024,189282000000.0
-Products,2023,189282000000.0
-Services,2025,25119000000.0
-Services,2024,24855000000.0
-Services,2023,24855000000.0
-Total cost of sales,2025,210352000000.0
-Total cost of sales,2024,214137000000.0
-Total cost of sales,2023,214137000000.0
-Gross margin,2025,180683000000.0
-Gross margin,2024,169148000000.0
-Gross margin,2023,169148000000.0
-Research and development,2025,31370000000.0
-Research and development,2024,29915000000.0
-Research and development,2023,29915000000.0
-"Selling, general and administrative",2025,26097000000.0
-"Selling, general and administrative",2024,24932000000.0
-"Selling, general and administrative",2023,24932000000.0
-Total operating expenses,2025,57467000000.0
-Total operating expenses,2024,54847000000.0
-Total operating expenses,2023,54847000000.0
-Operating income,2025,123216000000.0
-Operating income,2024,114301000000.0
-Operating income,2023,114301000000.0
-"Other income/(expense), net",2025,269000000.0
-Income before provision for income taxes,2025,123485000000.0
-Income before provision for income taxes,2024,113736000000.0
-Income before provision for income taxes,2023,113736000000.0
-Provision for income taxes,2025,29749000000.0
-Provision for income taxes,2024,16741000000.0
-Provision for income taxes,2023,16741000000.0
-Net income,2025,93736000000.0
-Net income,2023,96995000000.0
-Basic,2025,6110000.0
-Basic,2023,6160000.0
-Diluted,2025,6080000.0
-Diluted,2023,6130000.0
-Basic,2025,15343783000000.0
-Basic,2024,15744231000000.0
-Basic,2023,15744231000000.0
-Diluted,2025,15408095000000.0
-Diluted,2024,15812547000000.0
-Diluted,2023,15812547000000.0
+Services,2025,109158.0
+Services,2024,96169.0
+Services,2023,85200.0
+Total net sales,2025,416161.0
+Total net sales,2024,391035.0
+Total net sales,2023,383285.0
+Products,2025,194116.0
+Products,2024,185233.0
+Products,2023,189282.0
+Services,2025,26844.0
+Services,2024,25119.0
+Services,2023,24855.0
+Total cost of sales,2025,220960.0
+Total cost of sales,2024,210352.0
+Total cost of sales,2023,214137.0
+Gross margin,2025,195201.0
+Gross margin,2024,180683.0
+Gross margin,2023,169148.0
+Research and development,2025,34550.0
+Research and development,2024,31370.0
+Research and development,2023,29915.0
+"Selling, general and administrative",2025,27601.0
+"Selling, general and administrative",2024,26097.0
+"Selling, general and administrative",2023,24932.0
+Total operating expenses,2025,62151.0
+Total operating expenses,2024,57467.0
+Total operating expenses,2023,54847.0
+Operating income,2025,133050.0
+Operating income,2024,123216.0
+Operating income,2023,114301.0
+"Other income/(expense), net",2024,269.0
+Income before provision for income taxes,2025,132729.0
+Income before provision for income taxes,2024,123485.0
+Income before provision for income taxes,2023,113736.0
+Provision for income taxes,2025,20719.0
+Provision for income taxes,2024,29749.0
+Provision for income taxes,2023,16741.0
+Basic,2025,14948500.0
+Basic,2024,15343783.0
+Basic,2023,15744231.0
+Diluted,2025,15004697.0
+Diluted,2024,15408095.0
+Diluted,2023,15812547.0
