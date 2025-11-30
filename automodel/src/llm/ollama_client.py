@@ -18,6 +18,14 @@ DEFAULT_MODEL = os.environ.get("AUTOMODEL_OLLAMA_MODEL", "mistral:7b-instruct")
 # Change base URL if your Ollama is not on localhost:11434
 BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 
+# Remote providers (Groq/OpenAI) — set LLM_PROVIDER=groq or LLM_PROVIDER=openai
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "ollama").lower()
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama3-8b-8192")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+
 
 class OllamaError(RuntimeError):
     pass
@@ -59,6 +67,84 @@ def _ollama_chat(
     if not isinstance(content, str):
         raise OllamaError(f"Ollama returned unexpected content: {content!r}")
     return content.strip()
+
+
+def _groq_chat(
+    messages: List[Dict[str, str]],
+    temperature: float = 0.1,
+) -> str:
+    """Call Groq (OpenAI-compatible) chat endpoint."""
+    if not GROQ_API_KEY:
+        raise OllamaError("GROQ_API_KEY is not set")
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    payload: Dict[str, Any] = {
+        "model": GROQ_MODEL,
+        "messages": messages,
+        "temperature": temperature,
+        "stream": False,
+    }
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=120)
+    except Exception as e:
+        raise OllamaError(f"Failed to reach Groq at {url}: {e}")
+    if not resp.ok:
+        raise OllamaError(f"Groq HTTP {resp.status_code}: {resp.text[:500]}")
+    data = resp.json()
+    choices = data.get("choices") or []
+    if not choices:
+        raise OllamaError(f"Groq returned no choices: {data}")
+    message = choices[0].get("message", {})
+    content = message.get("content", "")
+    if not isinstance(content, str):
+        raise OllamaError(f"Groq returned unexpected content: {content!r}")
+    return content.strip()
+
+
+def _openai_chat(
+    messages: List[Dict[str, str]],
+    temperature: float = 0.1,
+) -> str:
+    """Call OpenAI chat endpoint (or compatible base URL)."""
+    if not OPENAI_API_KEY:
+        raise OllamaError("OPENAI_API_KEY is not set")
+    url = f"{OPENAI_BASE_URL.rstrip('/')}/chat/completions"
+    payload: Dict[str, Any] = {
+        "model": OPENAI_MODEL,
+        "messages": messages,
+        "temperature": temperature,
+        "stream": False,
+    }
+    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=120)
+    except Exception as e:
+        raise OllamaError(f"Failed to reach OpenAI at {url}: {e}")
+    if not resp.ok:
+        raise OllamaError(f"OpenAI HTTP {resp.status_code}: {resp.text[:500]}")
+    data = resp.json()
+    choices = data.get("choices") or []
+    if not choices:
+        raise OllamaError(f"OpenAI returned no choices: {data}")
+    message = choices[0].get("message", {})
+    content = message.get("content", "")
+    if not isinstance(content, str):
+        raise OllamaError(f"OpenAI returned unexpected content: {content!r}")
+    return content.strip()
+
+
+def _llm_chat(
+    messages: List[Dict[str, str]],
+    temperature: float = 0.1,
+) -> str:
+    """Dispatch to the configured LLM provider."""
+    provider = LLM_PROVIDER
+    if provider == "groq":
+        return _groq_chat(messages, temperature=temperature)
+    if provider == "openai":
+        return _openai_chat(messages, temperature=temperature)
+    # default: ollama
+    return _ollama_chat(messages, model=DEFAULT_MODEL, temperature=temperature)
 
 
 def _extract_json_from_text(text: str) -> Any:
@@ -184,7 +270,7 @@ def map_label_to_coa(label: str, coa_candidates: List[str]) -> Optional[str]:
         "Respond with exactly ONE of the COA names above, or NONE."
     )
 
-    content = _ollama_chat(
+    content = _llm_chat(
         [
             {"role": "system", "content": system_msg},
             {"role": "user", "content": user_msg},
