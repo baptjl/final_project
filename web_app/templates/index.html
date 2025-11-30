@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Unified Pipeline - Upload 10-K</title>
+    <style>
+      body { font-family: Arial, sans-serif; max-width: 800px; margin: 2rem auto; }
+      .box { border: 1px solid #ddd; padding: 1rem; border-radius: 6px; }
+      input[type=file] { display:block; margin-bottom: 1rem; }
+      button { background:#2b7cff; color:white; padding:8px 12px; border:none; border-radius:4px; }
+    </style>
+  </head>
+  <body>
+    <h1>Generate Final Excel from URL or HTML</h1>
+    <div class="box">
+      <form method="post" enctype="multipart/form-data" id="mainForm">
+        <label>Enter or drop a URL (drag a link onto the box) — or upload an HTML file</label>
+        <div id="dropZone" style="border:1px dashed #ccc; padding:12px; border-radius:6px; margin-bottom:8px;">
+          <input type="text" name="url" id="urlInput" placeholder="https://example.com/somepage" style="width:100%; padding:8px; box-sizing:border-box;" />
+          <small>Drag & drop a link here, or paste a URL. If both URL and file are provided, the URL will be used.</small>
+        </div>
+
+        <label>Or upload HTML File (.html / .htm)</label>
+        <input type="file" name="file" accept=".html,.htm" />
+
+        <label>Company Name</label>
+        <input type="text" name="company" id="company" placeholder="e.g. Apple Inc." required />
+        <p style="margin-top:12px"><button type="submit">Generate</button></p>
+      </form>
+    </div>
+
+    <script>
+      (function(){
+        const drop = document.getElementById('dropZone');
+        const urlInput = document.getElementById('urlInput');
+        const form = document.getElementById('mainForm');
+        const submitBtn = form.querySelector('button[type="submit"]');
+
+        drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.style.background = '#fafafa'; });
+        drop.addEventListener('dragleave', (e) => { drop.style.background = ''; });
+
+        drop.addEventListener('drop', (e) => {
+          e.preventDefault();
+          drop.style.background = '';
+          const items = e.dataTransfer.items;
+          if(items){
+            for(let i=0;i<items.length;i++){
+              const it = items[i];
+              if(it.kind === 'string'){
+                it.getAsString(function(s){
+                  const m = s.match(/https?:\/\/[\S]+/);
+                  if(m) urlInput.value = m[0];
+                });
+              }
+            }
+          }
+        });
+
+        urlInput.addEventListener('paste', (e)=>{ setTimeout(()=>{ urlInput.value = urlInput.value.trim(); }, 10); });
+
+        // Intercept form submit and do AJAX POST to receive the generated Excel as a file
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          submitBtn.disabled = true;
+          const originalText = submitBtn.textContent;
+          submitBtn.textContent = 'Generating...';
+
+          const fd = new FormData(form);
+          fd.append('ajax', '1');
+
+          try {
+            const resp = await fetch(form.action || '/', { method: 'POST', body: fd, credentials: 'same-origin' });
+            if (!resp.ok) {
+              const text = await resp.text();
+              // fallback: open result page or show error
+              alert('Server error during generation. See console for details.');
+              console.error('Server error response:', text);
+              window.location.reload();
+              return;
+            }
+
+            const disposition = resp.headers.get('Content-Disposition') || '';
+            let filename = 'final.xlsx';
+            const m = disposition.match(/filename="?([^\";]+)"?/);
+            if (m) filename = m[1];
+
+            const blob = await resp.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+
+          } catch (err) {
+            console.error(err);
+            alert('Error generating file. See console for details.');
+          } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = originalText;
+          }
+        });
+      })();
+    </script>
+    <p style="margin-top:1rem">Files are processed locally on this machine. The server binds to <code>127.0.0.1:8501</code> by default (private).</p>
+  </body>
+</html>

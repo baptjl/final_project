@@ -1,0 +1,10 @@
+Flask
+python-dotenv
+pandas
+openpyxl
+pyyaml
+numpy
+gunicorn
+werkzeug
+requests
+beautifulsoup4
