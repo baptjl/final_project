@@ -636,7 +636,13 @@ def step2_create_mid_product(
             units = meta.get("units", units)
         except Exception:
             pass
-    ws['D2'] = f"Units: {units}"
+    # Safely write units note even if cell is merged
+    target_row, target_col = 2, 4  # D2
+    for mr in ws.merged_cells.ranges:
+        if target_row >= mr.min_row and target_row <= mr.max_row and target_col >= mr.min_col and target_col <= mr.max_col:
+            target_row, target_col = mr.min_row, mr.min_col
+            break
+    ws.cell(row=target_row, column=target_col, value=f"Units: {units}")
 
     # Find template row indices
     template_rows = {}
