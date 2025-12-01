@@ -627,7 +627,10 @@ def step2_create_mid_product(
         'Income Before Taxes': 'Organic EBITDA',
         'Net Income': 'Total EBITDA',
     }
-    
+
+    # Add units note
+    ws['D2'] = f"Units: {hint or 'millions'}"
+
     # Find template row indices
     template_rows = {}
     for row_idx in range(1, ws.max_row + 1):
@@ -669,6 +672,32 @@ def step2_create_mid_product(
             cell.value = value
             cell.number_format = "#,##0;(#,##0)"
             cell.font = Font(color="1F4E79")  # blue tone for actuals
+
+    # Inject formulas for Gross Profit, Organic EBITDA, Total EBITDA across all columns
+    gp_row = template_rows.get("Gross Profit")
+    rev_row = template_rows.get("Revenue")
+    cogs_row = template_rows.get("COGS")
+    sgna_row = template_rows.get("SG&A")
+    rnd_row = template_rows.get("R&D")
+    organic_row = template_rows.get("Organic EBITDA")
+    other_row = template_rows.get("Other Income")
+    total_row = template_rows.get("Total EBITDA")
+
+    def _coord(r, c):
+        return f"{get_column_letter(c)}{r}"
+
+    for year, col_idx in year_map.items():
+        if rev_row and cogs_row and gp_row:
+            ws.cell(row=gp_row, column=col_idx).value = f"={_coord(rev_row,col_idx)}+{_coord(cogs_row,col_idx)}"
+            ws.cell(row=gp_row, column=col_idx).number_format = "#,##0;(#,##0)"
+        if gp_row and sgna_row and rnd_row and organic_row:
+            ws.cell(row=organic_row, column=col_idx).value = (
+                f"={_coord(gp_row,col_idx)}-{_coord(sgna_row,col_idx)}-{_coord(rnd_row,col_idx)}"
+            )
+            ws.cell(row=organic_row, column=col_idx).number_format = "#,##0;(#,##0)"
+        if organic_row and other_row and total_row:
+            ws.cell(row=total_row, column=col_idx).value = f"={_coord(organic_row,col_idx)}+{_coord(other_row,col_idx)}"
+            ws.cell(row=total_row, column=col_idx).number_format = "#,##0;(#,##0)"
     
     # Save
     output_path.parent.mkdir(parents=True, exist_ok=True)
