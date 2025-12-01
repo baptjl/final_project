@@ -380,34 +380,50 @@ def step2_create_mid_product(
     # Update company name
     ws['D1'] = company_name
     
-    # Get the year column mapping - handle both direct values and formulas
+    # Get the year column mapping - handle both direct values and formulas.
+    # Instead of relying on the template's starting year, anchor on the earliest
+    # year present in the data so we don't drop older periods (e.g., when data
+    # includes 2022 but the template header shows 2023).
     year_map = {}
     base_year = None
-    
-    for col_idx in range(5, 14):  # E to M (cols 5-13)
-        cell = ws.cell(row=4, column=col_idx)
-        if cell.value:
-            if isinstance(cell.value, str) and cell.value.startswith('='):
-                # It's a formula, skip for now
-                continue
-            try:
-                year = int(cell.value)
-                if 2000 <= year <= 2100:  # Sanity check for year range
-                    year_map[year] = col_idx
-                    if base_year is None:
-                        base_year = year
-            except (ValueError, TypeError):
-                pass
-    
-    # If we found a base year, calculate subsequent years
-    if base_year and year_map:
-        for offset in range(1, 10):
+
+    # Determine the earliest data year to anchor column E
+    data_min_year = int(df_pivot['year'].min()) if not df_pivot.empty else None
+
+    if data_min_year:
+        base_year = data_min_year
+        # Write years explicitly across the available columns E-M
+        for offset in range(0, 9):  # E to M inclusive is 9 columns
+            col_idx = 5 + offset
             year = base_year + offset
-            col_idx = 5 + offset  # Start from column E (5)
             if col_idx < 14:
                 year_map[year] = col_idx
-                # Explicitly set the year value in the cell (not as formula)
                 ws.cell(row=4, column=col_idx).value = year
+    else:
+        # Fallback to whatever is present in the template
+        for col_idx in range(5, 14):  # E to M (cols 5-13)
+            cell = ws.cell(row=4, column=col_idx)
+            if cell.value:
+                if isinstance(cell.value, str) and cell.value.startswith('='):
+                    # It's a formula, skip for now
+                    continue
+                try:
+                    year = int(cell.value)
+                    if 2000 <= year <= 2100:  # Sanity check for year range
+                        year_map[year] = col_idx
+                        if base_year is None:
+                            base_year = year
+                except (ValueError, TypeError):
+                    pass
+        # If we found a base year, calculate subsequent years
+        if base_year and year_map:
+            for offset in range(1, 10):
+                year = base_year + offset
+                col_idx = 5 + offset  # Start from column E (5)
+                if col_idx < 14:
+                    year_map[year] = col_idx
+                    # Explicitly set the year value in the cell (not as formula)
+                    ws.cell(row=4, column=col_idx).value = year
     
     if not year_map:
         raise ValueError("Could not find year columns in template")
