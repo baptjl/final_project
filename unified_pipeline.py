@@ -324,8 +324,12 @@ def step1_extract_from_html(html_path: Path, skip_llm: bool = True) -> Path:
     # Detect income statement table using heuristics + optional LLM (if not skipped)
     use_llm_tables = not skip_llm
     candidate_indices = _rank_tables(dfs, use_llm=use_llm_tables)
-    t = None
-    is_idx = candidate_indices[0]
+    good = False
+    csv_path = Path("automodel/data/interim/IS_tidy_mapped_best_llm.csv")
+    summary_path = LAST_SUMMARY_PATH
+    outdir = csv_path.parent
+    outdir.mkdir(parents=True, exist_ok=True)
+
     for cand in candidate_indices:
         is_df_raw = dfs[cand]
         is_idx = cand
@@ -334,126 +338,126 @@ def step1_extract_from_html(html_path: Path, skip_llm: bool = True) -> Path:
         if t is None or t.empty:
             print("[WARN] Custom tidy returned empty; trying standard tidy_is...")
             t = tidy_is(is_df_raw)
-        if t is not None and not t.empty:
-            break
-    if t is None or t.empty:
-        raise SystemExit("tidy_is returned empty for all candidate IS tables.")
-    print(f"Using table index {is_idx} as the income statement table.")
-    # Save metadata for validation
-    try:
-        LAST_META_PATH.write_text(json.dumps({"table_index": is_idx, "use_llm_for_tables": use_llm_tables}, indent=2))
-    except Exception as e:
-        print(f"[WARN] Could not save metadata: {e}")
-    
-    # Scale detection
-    hdr_blob = " ".join(map(str, is_df_raw.columns)).lower()
-    hint = t["scale_hint"].iloc[0] if "scale_hint" in t.columns and len(t) else "units"
-    
-    if len(t):
-        try:
-            sample_vals = (
-                t["value"].dropna().astype(float).sample(min(6, len(t))).tolist()
-            )
-        except Exception:
-            sample_vals = []
-    else:
-        sample_vals = []
-    
-    inferred = infer_scale(hdr_blob[:400], sample_vals) if hint == "units" else hint
-    factor = SCALE_FACTORS.get(inferred, 1.0)
-    t["value"] = t["value"] * factor
-    
-    # Keep label/year/value
-    all_tidy = t[["label_raw", "year", "value"]].copy()
-    
-    # Map labels to COA
-    mapped = map_labels(all_tidy, Path("automodel/configs/mappings.yaml"))
-    
-    with open(Path("automodel/configs/coa.yaml"), "r") as f:
-        coa_candidates = list((yaml.safe_load(f) or {}).keys())
-    
-    unm = mapped["coa"].isna()
-    
-    if unm.any():
-        if skip_llm:
-            print(
-                "Skipping LLM mapping. Unmapped labels will remain empty."
-            )
-        else:
-            from automodel.src.llm.ollama_client import map_label_to_coa
-            uniq = mapped.loc[unm, "label_raw"].dropna().unique().tolist()
+        if t is None or t.empty:
+            continue
+
+        # Scale detection
+        hdr_blob = " ".join(map(str, is_df_raw.columns)).lower()
+        hint = t["scale_hint"].iloc[0] if "scale_hint" in t.columns and len(t) else "units"
+        if len(t):
             try:
-                llm_map = {
-                    lbl: map_label_to_coa(lbl, coa_candidates) for lbl in uniq
-                }
-            except Exception as e:
-                # If Ollama/LLM is unavailable, fall back to heuristic-only mapping
-                print(f"[WARN] LLM mapping failed ({e}); continuing without LLM.")
-                llm_map = {}
-            if llm_map:
-                mapped.loc[unm, "coa"] = mapped.loc[unm, "label_raw"].map(llm_map)
-    
-    # Keep only P&L lines
-    REVENUE_COAS = {"Revenue", "Interest Income"}
-    
-    EXPENSE_COAS = {
-        "COGS",
-        "Sales & Marketing",
-        "Research & Development",
-        "General & Administrative",
-        "Depreciation & Amortization",
-        "Share-Based Compensation",
-        "Interest Expense",
-        "Income Tax Expense",
-        "Other Income (Expense)",
-    }
-    
-    PNL_TOTAL_COAS = REVENUE_COAS.union(EXPENSE_COAS).union(
-        {
-            "Gross Profit",
-            "Operating Income (EBIT)",
-            "Income Before Taxes",
-            "Net Income",
+                sample_vals = (
+                    t["value"].dropna().astype(float).sample(min(6, len(t))).tolist()
+                )
+            except Exception:
+                sample_vals = []
+        else:
+            sample_vals = []
+        inferred = infer_scale(hdr_blob[:400], sample_vals) if hint == "units" else hint
+        factor = SCALE_FACTORS.get(inferred, 1.0)
+        t["value"] = t["value"] * factor
+
+        all_tidy = t[["label_raw", "year", "value"]].copy()
+        mapped = map_labels(all_tidy, Path("automodel/configs/mappings.yaml"))
+
+        with open(Path("automodel/configs/coa.yaml"), "r") as f:
+            coa_candidates = list((yaml.safe_load(f) or {}).keys())
+
+        unm = mapped["coa"].isna()
+        if unm.any():
+            if skip_llm:
+                print("Skipping LLM mapping. Unmapped labels will remain empty.")
+            else:
+                from automodel.src.llm.ollama_client import map_label_to_coa
+                uniq = mapped.loc[unm, "label_raw"].dropna().unique().tolist()
+                try:
+                    llm_map = {
+                        lbl: map_label_to_coa(lbl, coa_candidates) for lbl in uniq
+                    }
+                except Exception as e:
+                    print(f"[WARN] LLM mapping failed ({e}); continuing without LLM.")
+                    llm_map = {}
+                if llm_map:
+                    mapped.loc[unm, "coa"] = mapped.loc[unm, "label_raw"].map(llm_map)
+
+        # Keep only P&L lines
+        REVENUE_COAS = {"Revenue", "Interest Income"}
+        EXPENSE_COAS = {
+            "COGS",
+            "Sales & Marketing",
+            "Research & Development",
+            "General & Administrative",
+            "Depreciation & Amortization",
+            "Share-Based Compensation",
+            "Interest Expense",
+            "Income Tax Expense",
+            "Other Income (Expense)",
         }
-    )
-    
-    mapped = mapped[mapped["coa"].isin(PNL_TOTAL_COAS)].copy()
-    
-    # Sign normalization
-    def _norm(row):
-        v = float(row["value"])
-        c = row.get("coa")
-        if c in REVENUE_COAS:
-            return abs(v)
-        if c in EXPENSE_COAS:
-            return -abs(v)
-        return v
-    
-    mapped["value"] = mapped.apply(_norm, axis=1)
-    
-    # Save outputs
-    outdir = Path("automodel/data/interim")
-    outdir.mkdir(parents=True, exist_ok=True)
-    all_tidy.to_csv(outdir / "IS_tidy_best.csv", index=False)
-    mapped.to_csv(outdir / "IS_tidy_mapped_best_llm.csv", index=False)
-    
-    view = (
-        mapped.dropna(subset=["coa"])
-        .groupby(["coa", "year"])["value"]
-        .sum()
-        .reset_index()
-        .sort_values(["coa", "year"])
-    )
-    
-    print("\nSummary by COA & year:")
-    print(view.to_string(index=False))
-    
-    csv_path = Path("automodel/data/interim/IS_tidy_mapped_best_llm.csv")
-    # Persist summary for downstream validation tab
-    mapped.to_csv(csv_path, index=False)
-    # Save grouped view for validation
-    view.to_csv(LAST_SUMMARY_PATH, index=False)
-    print(f"✅ Extracted financial data to {csv_path}")
+        PNL_TOTAL_COAS = REVENUE_COAS.union(EXPENSE_COAS).union(
+            {
+                "Gross Profit",
+                "Operating Income (EBIT)",
+                "Income Before Taxes",
+                "Net Income",
+            }
+        )
+        mapped = mapped[mapped["coa"].isin(PNL_TOTAL_COAS)].copy()
+
+        # Sign normalization
+        def _norm(row):
+            v = float(row["value"])
+            c = row.get("coa")
+            if c in REVENUE_COAS:
+                return abs(v)
+            if c in EXPENSE_COAS:
+                return -abs(v)
+            return v
+        mapped["value"] = mapped.apply(_norm, axis=1)
+
+        view = (
+            mapped.dropna(subset=["coa"])
+            .groupby(["coa", "year"])["value"]
+            .sum()
+            .reset_index()
+            .sort_values(["coa", "year"])
+        )
+
+        # Validation: require revenue and cogs for at least 2 years and gross profit consistency
+        rev = view[view["coa"] == "Revenue"].set_index("year")["value"] if not view.empty else {}
+        cogs = view[view["coa"] == "COGS"].set_index("year")["value"] if not view.empty else {}
+        gp = view[view["coa"] == "Gross Profit"].set_index("year")["value"] if not view.empty else {}
+        if len(rev) < 2 or len(cogs) < 2:
+            print(f"[WARN] Table {cand} rejected: insufficient revenue/COGS data.")
+            continue
+        bad_years = []
+        for y in gp.index:
+            r = rev.get(y, 0)
+            c = cogs.get(y, 0)
+            g = gp.get(y, 0)
+            if abs((r + c) - g) > max(1e-3, 0.02 * max(abs(g), 1)):
+                bad_years.append(y)
+        if bad_years and len(bad_years) == len(gp.index):
+            print(f"[WARN] Table {cand} rejected: gross profit mismatch.")
+            continue
+
+        # Passed validation, save and break
+        all_tidy.to_csv(outdir / "IS_tidy_best.csv", index=False)
+        mapped.to_csv(csv_path, index=False)
+        view.to_csv(summary_path, index=False)
+        print("\nSummary by COA & year:")
+        print(view.to_string(index=False))
+        print(f"✅ Extracted financial data to {csv_path}")
+        print(f"Using table index {is_idx} as the income statement table.")
+        # Save metadata for validation
+        try:
+            LAST_META_PATH.write_text(json.dumps({"table_index": is_idx, "use_llm_for_tables": use_llm_tables}, indent=2))
+        except Exception as e:
+            print(f"[WARN] Could not save metadata: {e}")
+        good = True
+        break
+
+    if not good:
+        raise SystemExit("No valid income statement table found after validation.")
     return csv_path
 
 
@@ -502,43 +506,27 @@ def step2_create_mid_product(
     year_map = {}
     base_year = None
 
-    # Determine the earliest data year to anchor column E
-    data_min_year = int(df_pivot['year'].min()) if not df_pivot.empty else None
-
-    if data_min_year:
-        base_year = data_min_year
-        # Write years explicitly across the available columns E-M
-        for offset in range(0, 9):  # E to M inclusive is 9 columns
-            col_idx = 5 + offset
-            year = base_year + offset
-            if col_idx < 14:
-                year_map[year] = col_idx
-                ws.cell(row=4, column=col_idx).value = year
+    # Anchor the template to the last three data years (most recent on the right)
+    data_years = sorted(df_pivot['year'].unique().tolist()) if not df_pivot.empty else []
+    if data_years:
+        last_three = data_years[-3:]
+        for idx, year in enumerate(last_three):
+            col_idx = 5 + idx  # E, F, G
+            year_map[year] = col_idx
+            ws.cell(row=4, column=col_idx).value = year
     else:
         # Fallback to whatever is present in the template
         for col_idx in range(5, 14):  # E to M (cols 5-13)
             cell = ws.cell(row=4, column=col_idx)
             if cell.value:
                 if isinstance(cell.value, str) and cell.value.startswith('='):
-                    # It's a formula, skip for now
                     continue
                 try:
                     year = int(cell.value)
-                    if 2000 <= year <= 2100:  # Sanity check for year range
+                    if 2000 <= year <= 2100:
                         year_map[year] = col_idx
-                        if base_year is None:
-                            base_year = year
                 except (ValueError, TypeError):
                     pass
-        # If we found a base year, calculate subsequent years
-        if base_year and year_map:
-            for offset in range(1, 10):
-                year = base_year + offset
-                col_idx = 5 + offset  # Start from column E (5)
-                if col_idx < 14:
-                    year_map[year] = col_idx
-                    # Explicitly set the year value in the cell (not as formula)
-                    ws.cell(row=4, column=col_idx).value = year
     
     if not year_map:
         raise ValueError("Could not find year columns in template")
