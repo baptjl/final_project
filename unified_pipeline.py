@@ -818,6 +818,12 @@ def step3_run_finmod_projections(
     if not output_path.exists():
         raise RuntimeError("FinMod did not produce expected output Excel")
     
+    # Post-process final workbook to apply formulas/formatting
+    try:
+        _apply_projection_formulas(output_path)
+    except Exception as e:
+        print(f"[WARN] Could not apply projection formulas: {e}")
+
     print(f"✅ Generated Final Excel: {output_path}")
     # Add validation sheet if summary is available
     try:
@@ -936,6 +942,122 @@ def _attach_validation_sheet(final_path: Path, summary_path: Path) -> None:
         c = fmt_number(ws.cell(row=row_idx, column=j, value=diff))
         if abs(diff) > 1e-2:
             c.font = c.font.copy(color="FF0000")
+    wb.save(final_path)
+
+
+def _apply_projection_formulas(final_path: Path) -> None:
+    """
+    Rewrite projected-year cells to formulas tied to assumptions,
+    and recalc GP/EBITDA rows. Also normalize font to Arial 12.
+    """
+    if not final_path.exists():
+        return
+    wb = load_workbook(final_path, data_only=False)
+    ws = wb.active
+
+    # Build year map from header row (assume row 4, columns E-M)
+    year_map = {}
+    base_row = 4
+    for col_idx in range(5, 14):
+        cell = ws.cell(row=base_row, column=col_idx)
+        try:
+            year = int(cell.value)
+            year_map[year] = col_idx
+        except Exception:
+            continue
+    if not year_map:
+        wb.save(final_path)
+        return
+
+    # Locate rows by label in column C
+    labels = {}
+    for row_idx in range(1, ws.max_row + 1):
+        val = ws.cell(row=row_idx, column=3).value
+        if isinstance(val, str):
+            key = val.strip().lower()
+            labels[key] = row_idx
+
+    def get_row(label):
+        return labels.get(label.lower())
+
+    rev_row = get_row("Revenue")
+    cogs_row = get_row("COGS")
+    gp_row = get_row("Gross Profit")
+    sgna_row = get_row("SG&A")
+    rnd_row = get_row("R&D")
+    organic_row = get_row("Organic EBITDA")
+    other_row = get_row("Other Income")
+    total_row = get_row("Total EBITDA")
+    capex_row = get_row("Capex")
+
+    # Assumption cells
+    ASSUMP = {
+        "rev": "Q5",
+        "cogs": "Q6",
+        "sgna": "Q7",
+        "rnd": "Q8",
+        "capex": "Q9",
+        "other": "Q10",
+    }
+
+    # Normalize font
+    for row in ws.iter_rows():
+        for cell in row:
+            if cell.value is not None:
+                cell.font = Font(name="Arial", size=12, bold=cell.font.bold, italic=cell.font.italic, color=cell.font.color)
+
+    def _coord(r, c):
+        return f"{get_column_letter(c)}{r}"
+
+    actual_years = sorted([y for y in year_map.keys()])[:3]  # assume first 3 as actuals
+    max_actual_year = max(actual_years) if actual_years else None
+
+    for year, col_idx in year_map.items():
+        if max_actual_year and year > max_actual_year:
+            prior_year = year - 1
+            prior_col = year_map.get(prior_year)
+            if prior_col:
+                if rev_row:
+                    ws.cell(row=rev_row, column=col_idx).value = f"={_coord(rev_row, prior_col)}*(1+{ASSUMP['rev']})"
+                if cogs_row:
+                    ws.cell(row=cogs_row, column=col_idx).value = f"={_coord(cogs_row, prior_col)}*(1+{ASSUMP['cogs']})"
+                if sgna_row:
+                    ws.cell(row=sgna_row, column=col_idx).value = f"={_coord(sgna_row, prior_col)}*(1+{ASSUMP['sgna']})"
+                if rnd_row:
+                    ws.cell(row=rnd_row, column=col_idx).value = f"={_coord(rnd_row, prior_col)}*(1+{ASSUMP['rnd']})"
+                if other_row:
+                    ws.cell(row=other_row, column=col_idx).value = f"={_coord(other_row, prior_col)}*(1+{ASSUMP['other']})"
+                if capex_row:
+                    ws.cell(row=capex_row, column=col_idx).value = f"={_coord(capex_row, prior_col)}*(1+{ASSUMP['capex']})"
+
+        # GP / EBITDA formulas all years
+        if rev_row and cogs_row and gp_row:
+            ws.cell(row=gp_row, column=col_idx).value = f"={_coord(rev_row,col_idx)}+{_coord(cogs_row,col_idx)}"
+            ws.cell(row=gp_row, column=col_idx).number_format = "#,##0;(#,##0)"
+        if gp_row and sgna_row and rnd_row and organic_row:
+            ws.cell(row=organic_row, column=col_idx).value = (
+                f"={_coord(gp_row,col_idx)}-{_coord(sgna_row,col_idx)}-{_coord(rnd_row,col_idx)}"
+            )
+            ws.cell(row=organic_row, column=col_idx).number_format = "#,##0;(#,##0)"
+        if organic_row and other_row and total_row:
+            ws.cell(row=total_row, column=col_idx).value = f"={_coord(organic_row,col_idx)}+{_coord(other_row,col_idx)}"
+            ws.cell(row=total_row, column=col_idx).number_format = "#,##0;(#,##0)"
+
+    # % rows for projected years
+    pct_rows = {
+        "cogs": cogs_row,
+        "sgna": sgna_row,
+        "rnd": rnd_row,
+        "other": other_row,
+    }
+    for key, row_idx in pct_rows.items():
+        if not row_idx:
+            continue
+        pct_row = row_idx + 1
+        for year, col_idx in year_map.items():
+            if max_actual_year and year > max_actual_year:
+                ws.cell(row=pct_row, column=col_idx).value = f"={ASSUMP[key]}"
+
     wb.save(final_path)
 
 
