@@ -9,6 +9,8 @@ __pycache__/
 .DS_Store
 node_modules/
 .env.local
+# Ignore generated interim CSV outputs
+automodel/data/interim/*.csv
 # Keep required Excel templates for finmod
 !final-project_finmod-main/Inputs_Historical/Baseline IS.xlsx
 !final-project_finmod-main/Inputs_Historical/Baseline IS Complex.xlsx

@@ -12,7 +12,7 @@ import os
 import sys
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 import subprocess
 
 # Add project paths to sys.path
@@ -30,7 +30,7 @@ from openpyxl.utils import get_column_letter
 # Import automodel modules
 from automodel.src.extract.is_tidy import tidy_is
 from automodel.src.map.map_to_coa import map_labels
-from automodel.src.llm.ollama_client import infer_scale
+from automodel.src.llm.ollama_client import infer_scale, _llm_chat
 
 # Convert extracted values to millions for consistent downstream modeling/display
 SCALE_FACTORS = {
@@ -41,6 +41,70 @@ SCALE_FACTORS = {
 }
 
 YEAR_RE = re.compile(r"(?<!\d)(20\d{2})(?!\d)", re.I)
+
+
+def _heuristic_score(df: pd.DataFrame) -> int:
+    """Basic heuristic score for income statement likelihood."""
+    first_col = df.iloc[:, 0].astype(str).str.lower()
+    has_revenue = any('net sales' in x or 'revenue' in x for x in first_col)
+    has_cogs = any('cost of sales' in x or 'cogs' in x for x in first_col)
+    has_gross = any('gross' in x for x in first_col)
+    has_operating = any('operating' in x or 'ebitda' in x for x in first_col)
+    has_net_income = any('net income' in x for x in first_col)
+    return sum([has_revenue, has_cogs, has_gross, has_operating, has_net_income])
+
+
+def _summarize_table(df: pd.DataFrame, idx: int) -> str:
+    """Lightweight text summary of a table for LLM ranking."""
+    col_headers = [str(c) for c in df.columns]
+    first_rows = []
+    for _, row in df.head(8).iterrows():
+        first_rows.append("|".join(str(x) for x in row.tolist()))
+    years = YEAR_RE.findall(" ".join(col_headers) + " " + df.head(4).astype(str).to_string())
+    return (
+        f"Table {idx}: shape={df.shape}, headers={col_headers}, years_in_header={years}, "
+        f"first_rows={first_rows}"
+    )
+
+
+def _choose_is_table(dfs: list[pd.DataFrame], use_llm: bool) -> int:
+    """Pick income statement table using heuristics + optional LLM ranking."""
+    # Heuristic: pick the highest score table
+    scored = [( _heuristic_score(df), idx) for idx, df in enumerate(dfs)]
+    scored_sorted = sorted(scored, key=lambda t: t[0], reverse=True)
+    best_idx = scored_sorted[0][1] if scored_sorted else 0
+
+    if not use_llm:
+        return best_idx
+
+    # LLM ranking: present top candidates
+    top_candidates = [idx for _, idx in scored_sorted[:6]]
+    summaries = [_summarize_table(dfs[idx], idx) for idx in top_candidates]
+    prompt = (
+        "You are selecting the INCOME STATEMENT table from scraped HTML tables. "
+        "Pick the one that most likely represents a P&L (Revenue/Net sales, Cost of sales/COGS, "
+        "Gross profit, Operating income, Net income). "
+        "Respond with ONLY the table index number.\n\n"
+        + "\n\n".join(summaries)
+    )
+    try:
+        resp = _llm_chat(
+            [
+                {"role": "system", "content": "Select the income statement table index."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.0,
+        )
+        # Parse first integer in response
+        m = re.search(r"(\d+)", resp)
+        if m:
+            idx = int(m.group(1))
+            if 0 <= idx < len(dfs):
+                return idx
+    except Exception as e:
+        print(f"[WARN] LLM table selection failed ({e}); falling back to heuristic.")
+
+    return best_idx
 
 
 def custom_tidy_is(df: pd.DataFrame) -> pd.DataFrame:
@@ -199,29 +263,8 @@ def step1_extract_from_html(html_path: Path, skip_llm: bool = True) -> Path:
     
     print(f"Found {len(dfs)} tables in HTML")
     
-    # Detect income statement table using heuristics
-    is_idx = None
-    for idx, df in enumerate(dfs):
-        first_col = df.iloc[:, 0].astype(str).str.lower()
-        
-        # Look for income statement keywords
-        has_revenue = any('net sales' in str(x).lower() or 'revenue' in str(x).lower() for x in first_col)
-        has_cogs = any('cost of sales' in str(x).lower() or 'cogs' in str(x).lower() for x in first_col)
-        has_gross = any('gross' in str(x).lower() for x in first_col)
-        has_operating = any('operating' in str(x).lower() or 'ebitda' in str(x).lower() for x in first_col)
-        has_net_income = any('net income' in str(x).lower() for x in first_col)
-        
-        score = sum([has_revenue, has_cogs, has_gross, has_operating, has_net_income])
-        
-        if score >= 3:  # At least 3 income statement indicators
-            is_idx = idx
-            print(f"[INFO] Found income statement table at index {is_idx}")
-            break
-    
-    if is_idx is None:
-        is_idx = 0
-        print(f"[WARN] Could not detect income statement table; using table 0")
-    
+    # Detect income statement table using heuristics + optional LLM (if not skipped)
+    is_idx = _choose_is_table(dfs, use_llm=not skip_llm)
     print(f"Using table index {is_idx} as the income statement table.")
     
     is_df_raw = dfs[is_idx]
