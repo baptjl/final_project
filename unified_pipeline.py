@@ -11,6 +11,7 @@ This script orchestrates the entire workflow:
 import os
 import sys
 import re
+import json
 from pathlib import Path
 from typing import Optional, Dict, List
 import subprocess
@@ -26,6 +27,7 @@ import yaml
 import math
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
+from openpyxl.styles import Font
 
 # Import automodel modules
 from automodel.src.extract.is_tidy import tidy_is
@@ -42,6 +44,7 @@ SCALE_FACTORS = {
 
 YEAR_RE = re.compile(r"(?<!\d)(20\d{2})(?!\d)", re.I)
 LAST_SUMMARY_PATH = Path("automodel/data/interim/last_summary.csv")
+LAST_META_PATH = Path("automodel/data/interim/last_meta.json")
 
 
 def _heuristic_score(df: pd.DataFrame) -> int:
@@ -309,7 +312,8 @@ def step1_extract_from_html(html_path: Path, skip_llm: bool = True) -> Path:
     print(f"Found {len(dfs)} tables in HTML")
     
     # Detect income statement table using heuristics + optional LLM (if not skipped)
-    candidate_indices = _rank_tables(dfs, use_llm=not skip_llm)
+    use_llm_tables = not skip_llm
+    candidate_indices = _rank_tables(dfs, use_llm=use_llm_tables)
     t = None
     is_idx = candidate_indices[0]
     for cand in candidate_indices:
@@ -325,6 +329,11 @@ def step1_extract_from_html(html_path: Path, skip_llm: bool = True) -> Path:
     if t is None or t.empty:
         raise SystemExit("tidy_is returned empty for all candidate IS tables.")
     print(f"Using table index {is_idx} as the income statement table.")
+    # Save metadata for validation
+    try:
+        LAST_META_PATH.write_text(json.dumps({"table_index": is_idx, "use_llm_for_tables": use_llm_tables}, indent=2))
+    except Exception as e:
+        print(f"[WARN] Could not save metadata: {e}")
     
     # Scale detection
     hdr_blob = " ".join(map(str, is_df_raw.columns)).lower()
@@ -582,6 +591,8 @@ def step2_create_mid_product(
             col_idx = year_map[year]
             cell = ws.cell(row=row_idx, column=col_idx)
             cell.value = value
+            cell.number_format = "#,##0;(#,##0)"
+            cell.font = Font(color="1F4E79")  # blue tone for actuals
     
     # Save
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -667,6 +678,13 @@ def _attach_validation_sheet(final_path: Path, summary_path: Path) -> None:
     ws = wb.create_sheet("Validation")
 
     ws["A1"] = "Extracted P&L (millions)"
+    # Metadata
+    if LAST_META_PATH.exists():
+        try:
+            meta = json.loads(LAST_META_PATH.read_text())
+            ws["A2"] = f"Table index: {meta.get('table_index')}, LLM table select: {meta.get('use_llm_for_tables')}"
+        except Exception:
+            pass
     # headers
     years = sorted([int(y) for y in pivot.columns if pd.notna(y)]) if pivot.columns.size else []
     for j, year in enumerate(years, start=2):
@@ -702,6 +720,34 @@ def _attach_validation_sheet(final_path: Path, summary_path: Path) -> None:
         cogs = pivot.at["COGS", year] if ("COGS" in pivot.index and year in pivot.columns) else 0
         gp = pivot.at["Gross Profit", year] if ("Gross Profit" in pivot.index and year in pivot.columns) else 0
         diff = (rev + cogs) - gp
+        c = fmt_number(ws.cell(row=row_idx, column=j, value=diff))
+        if abs(diff) > 1e-2:
+            c.font = c.font.copy(color="FF0000")
+    row_idx += 2
+
+    # Operating income check: Revenue + COGS + SG&A + R&D vs Operating Income
+    ws.cell(row=row_idx, column=1, value="Check: Operating Income vs derived (difference)")
+    for j, year in enumerate(years, start=2):
+        rev = pivot.at["Revenue", year] if ("Revenue" in pivot.index and year in pivot.columns) else 0
+        cogs = pivot.at["COGS", year] if ("COGS" in pivot.index and year in pivot.columns) else 0
+        gna = pivot.at.get("General & Administrative", {}).get(year, 0) if isinstance(pivot, pd.DataFrame) else 0
+        sgna = pivot.at.get("Sales & Marketing", {}).get(year, 0) if isinstance(pivot, pd.DataFrame) else 0
+        rnd = pivot.at.get("Research & Development", {}).get(year, 0) if isinstance(pivot, pd.DataFrame) else 0
+        derived = rev + cogs + gna + sgna + rnd
+        oi = pivot.at["Operating Income (EBIT)", year] if ("Operating Income (EBIT)" in pivot.index and year in pivot.columns) else 0
+        diff = derived - oi
+        c = fmt_number(ws.cell(row=row_idx, column=j, value=diff))
+        if abs(diff) > 1e-2:
+            c.font = c.font.copy(color="FF0000")
+    row_idx += 2
+
+    # Net income check: Income Before Taxes + Income Tax Expense vs Net Income
+    ws.cell(row=row_idx, column=1, value="Check: Net Income vs PBT + Tax (difference)")
+    for j, year in enumerate(years, start=2):
+        pbt = pivot.at["Income Before Taxes", year] if ("Income Before Taxes" in pivot.index and year in pivot.columns) else 0
+        tax = pivot.at["Income Tax Expense", year] if ("Income Tax Expense" in pivot.index and year in pivot.columns) else 0
+        ni = pivot.at["Net Income", year] if ("Net Income" in pivot.index and year in pivot.columns) else 0
+        diff = (pbt + tax) - ni
         c = fmt_number(ws.cell(row=row_idx, column=j, value=diff))
         if abs(diff) > 1e-2:
             c.font = c.font.copy(color="FF0000")
