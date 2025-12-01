@@ -43,8 +43,9 @@ SCALE_FACTORS = {
 }
 
 YEAR_RE = re.compile(r"(?<!\d)(20\d{2})(?!\d)", re.I)
-LAST_SUMMARY_PATH = Path("automodel/data/interim/last_summary.csv")
-LAST_META_PATH = Path("automodel/data/interim/last_meta.json")
+BASE_DIR = Path(__file__).resolve().parent
+LAST_SUMMARY_PATH = BASE_DIR / "automodel/data/interim/last_summary.csv"
+LAST_META_PATH = BASE_DIR / "automodel/data/interim/last_meta.json"
 USE_LLM_EXTRACTION = os.environ.get("USE_LLM_EXTRACTION", "0").lower() in {"1", "true", "yes", "on"}
 
 
@@ -176,9 +177,9 @@ def _map_and_save(
     t["value"] = t["value"] * factor
 
     all_tidy = t[["label_raw", "year", "value"]].copy()
-    mapped = map_labels(all_tidy, Path("automodel/configs/mappings.yaml"))
+    mapped = map_labels(all_tidy, BASE_DIR / "automodel/configs/mappings.yaml")
 
-    with open(Path("automodel/configs/coa.yaml"), "r") as f:
+    with open(BASE_DIR / "automodel/configs/coa.yaml", "r") as f:
         coa_candidates = list((yaml.safe_load(f) or {}).keys())
 
     unm = mapped["coa"].isna()
@@ -256,7 +257,7 @@ def _map_and_save(
         print(f"[WARN] Table {table_idx} rejected: gross profit mismatch.")
         return None
 
-    outdir = Path("automodel/data/interim")
+    outdir = BASE_DIR / "automodel/data/interim"
     outdir.mkdir(parents=True, exist_ok=True)
     all_tidy.to_csv(outdir / "IS_tidy_best.csv", index=False)
     csv_path = outdir / "IS_tidy_mapped_best_llm.csv"
