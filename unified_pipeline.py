@@ -12,7 +12,7 @@ import os
 import sys
 import re
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 import subprocess
 
 # Add project paths to sys.path
@@ -41,6 +41,7 @@ SCALE_FACTORS = {
 }
 
 YEAR_RE = re.compile(r"(?<!\d)(20\d{2})(?!\d)", re.I)
+LAST_SUMMARY_PATH = Path("automodel/data/interim/last_summary.csv")
 
 
 def _heuristic_score(df: pd.DataFrame) -> int:
@@ -67,44 +68,40 @@ def _summarize_table(df: pd.DataFrame, idx: int) -> str:
     )
 
 
-def _choose_is_table(dfs: list[pd.DataFrame], use_llm: bool) -> int:
-    """Pick income statement table using heuristics + optional LLM ranking."""
-    # Heuristic: pick the highest score table
+def _rank_tables(dfs: List[pd.DataFrame], use_llm: bool) -> List[int]:
+    """Return a ranked list of table indices (best first)."""
     scored = [( _heuristic_score(df), idx) for idx, df in enumerate(dfs)]
-    scored_sorted = sorted(scored, key=lambda t: t[0], reverse=True)
-    best_idx = scored_sorted[0][1] if scored_sorted else 0
+    scored_sorted = [idx for _, idx in sorted(scored, key=lambda t: t[0], reverse=True)]
+    ranked = scored_sorted[:]
 
-    if not use_llm:
-        return best_idx
-
-    # LLM ranking: present top candidates
-    top_candidates = [idx for _, idx in scored_sorted[:6]]
-    summaries = [_summarize_table(dfs[idx], idx) for idx in top_candidates]
-    prompt = (
-        "You are selecting the INCOME STATEMENT table from scraped HTML tables. "
-        "Pick the one that most likely represents a P&L (Revenue/Net sales, Cost of sales/COGS, "
-        "Gross profit, Operating income, Net income). "
-        "Respond with ONLY the table index number.\n\n"
-        + "\n\n".join(summaries)
-    )
-    try:
-        resp = _llm_chat(
-            [
-                {"role": "system", "content": "Select the income statement table index."},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.0,
+    if use_llm:
+        top_candidates = scored_sorted[:6]
+        summaries = [_summarize_table(dfs[idx], idx) for idx in top_candidates]
+        prompt = (
+            "You are selecting the INCOME STATEMENT table from scraped HTML tables. "
+            "Pick the one that most likely represents a P&L (Revenue/Net sales, Cost of sales/COGS, "
+            "Gross profit, Operating income, Net income). "
+            "Respond with ONLY the table index number.\n\n"
+            + "\n\n".join(summaries)
         )
-        # Parse first integer in response
-        m = re.search(r"(\d+)", resp)
-        if m:
-            idx = int(m.group(1))
-            if 0 <= idx < len(dfs):
-                return idx
-    except Exception as e:
-        print(f"[WARN] LLM table selection failed ({e}); falling back to heuristic.")
+        try:
+            resp = _llm_chat(
+                [
+                    {"role": "system", "content": "Select the income statement table index."},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.0,
+            )
+            m = re.search(r"(\d+)", resp)
+            if m:
+                idx = int(m.group(1))
+                if 0 <= idx < len(dfs):
+                    # put LLM choice first
+                    ranked = [idx] + [i for i in scored_sorted if i != idx]
+        except Exception as e:
+            print(f"[WARN] LLM table selection failed ({e}); falling back to heuristic.")
 
-    return best_idx
+    return ranked or [0]
 
 
 def custom_tidy_is(df: pd.DataFrame) -> pd.DataFrame:
@@ -312,18 +309,22 @@ def step1_extract_from_html(html_path: Path, skip_llm: bool = True) -> Path:
     print(f"Found {len(dfs)} tables in HTML")
     
     # Detect income statement table using heuristics + optional LLM (if not skipped)
-    is_idx = _choose_is_table(dfs, use_llm=not skip_llm)
+    candidate_indices = _rank_tables(dfs, use_llm=not skip_llm)
+    t = None
+    is_idx = candidate_indices[0]
+    for cand in candidate_indices:
+        is_df_raw = dfs[cand]
+        is_idx = cand
+        print(f"Trying table index {cand} as the income statement candidate.")
+        t = custom_tidy_is(is_df_raw)
+        if t is None or t.empty:
+            print("[WARN] Custom tidy returned empty; trying standard tidy_is...")
+            t = tidy_is(is_df_raw)
+        if t is not None and not t.empty:
+            break
+    if t is None or t.empty:
+        raise SystemExit("tidy_is returned empty for all candidate IS tables.")
     print(f"Using table index {is_idx} as the income statement table.")
-    
-    is_df_raw = dfs[is_idx]
-    
-    # Tidy the chosen table (try custom tidy first, then fall back to standard)
-    t = custom_tidy_is(is_df_raw)
-    if t is None or t.empty:
-        print("[WARN] Custom tidy returned empty; trying standard tidy_is...")
-        t = tidy_is(is_df_raw)
-    if t is None or t.empty:
-        raise SystemExit("tidy_is returned empty for the chosen IS table.")
     
     # Scale detection
     hdr_blob = " ".join(map(str, is_df_raw.columns)).lower()
@@ -429,6 +430,10 @@ def step1_extract_from_html(html_path: Path, skip_llm: bool = True) -> Path:
     print(view.to_string(index=False))
     
     csv_path = Path("automodel/data/interim/IS_tidy_mapped_best_llm.csv")
+    # Persist summary for downstream validation tab
+    mapped.to_csv(csv_path, index=False)
+    # Save grouped view for validation
+    view.to_csv(LAST_SUMMARY_PATH, index=False)
     print(f"✅ Extracted financial data to {csv_path}")
     return csv_path
 
@@ -630,7 +635,77 @@ def step3_run_finmod_projections(
         raise RuntimeError("FinMod did not produce expected output Excel")
     
     print(f"✅ Generated Final Excel: {output_path}")
+    # Add validation sheet if summary is available
+    try:
+        if LAST_SUMMARY_PATH.exists():
+            _attach_validation_sheet(output_path, LAST_SUMMARY_PATH)
+    except Exception as e:
+        print(f"[WARN] Could not attach validation sheet: {e}")
     return output_path
+
+
+def _attach_validation_sheet(final_path: Path, summary_path: Path) -> None:
+    """
+    Add a 'Validation' sheet to the final Excel showing extracted P&L and simple checks.
+    """
+    if not final_path.exists() or not summary_path.exists():
+        return
+
+    df = pd.read_csv(summary_path)
+    if df.empty or "coa" not in df.columns:
+        return
+
+    pivot = (
+        df.pivot_table(index="coa", columns="year", values="value", aggfunc="sum")
+        .reindex(["Revenue", "COGS", "Gross Profit", "Operating Income (EBIT)", "Income Before Taxes", "Net Income"])
+    )
+
+    wb = load_workbook(final_path)
+    if "Validation" in wb.sheetnames:
+        ws = wb["Validation"]
+        wb.remove(ws)
+    ws = wb.create_sheet("Validation")
+
+    ws["A1"] = "Extracted P&L (millions)"
+    # headers
+    years = sorted([int(y) for y in pivot.columns if pd.notna(y)]) if pivot.columns.size else []
+    for j, year in enumerate(years, start=2):
+        ws.cell(row=2, column=j, value=year)
+
+    # rows
+    label_map = {
+        "Revenue": "Revenue",
+        "COGS": "COGS",
+        "Gross Profit": "Gross Profit (calc)",
+        "Operating Income (EBIT)": "Operating Income",
+        "Income Before Taxes": "Income Before Taxes",
+        "Net Income": "Net Income",
+    }
+
+    def fmt_number(cell):
+        cell.number_format = "#,##0;(#,##0)"
+        return cell
+
+    row_idx = 3
+    for coa_key, display in label_map.items():
+        ws.cell(row=row_idx, column=1, value=display)
+        for j, year in enumerate(years, start=2):
+            val = pivot.at[coa_key, year] if (coa_key in pivot.index and year in pivot.columns) else None
+            if pd.notna(val):
+                fmt_number(ws.cell(row=row_idx, column=j, value=val))
+        row_idx += 1
+
+    # Simple check: Gross Profit vs Revenue + COGS
+    ws.cell(row=row_idx, column=1, value="Check: Gross = Revenue + COGS (difference)")
+    for j, year in enumerate(years, start=2):
+        rev = pivot.at["Revenue", year] if ("Revenue" in pivot.index and year in pivot.columns) else 0
+        cogs = pivot.at["COGS", year] if ("COGS" in pivot.index and year in pivot.columns) else 0
+        gp = pivot.at["Gross Profit", year] if ("Gross Profit" in pivot.index and year in pivot.columns) else 0
+        diff = (rev + cogs) - gp
+        c = fmt_number(ws.cell(row=row_idx, column=j, value=diff))
+        if abs(diff) > 1e-2:
+            c.font = c.font.copy(color="FF0000")
+    wb.save(final_path)
 
 
 def main(
