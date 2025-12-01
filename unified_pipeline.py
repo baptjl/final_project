@@ -115,11 +115,12 @@ def _llm_extract_is(raw_html: str) -> pd.DataFrame:
     Returns DataFrame with label_raw, year, value, scale_hint.
     """
     prompt = (
-        "Extract an income statement (P&L) from the given HTML content. "
-        "Output ONLY a JSON array of objects with fields: "
-        "\"label\" (e.g., Revenue, Cost of revenue, Gross profit, Operating income, Income before taxes, Net income, R&D, SG&A), "
-        "\"year\" (numeric), and \"value\" (numeric). Use millions as units. "
-        "Include at least Revenue, Cost of revenue/COGS, Gross profit, Operating income, Net income for the last 3 reported years."
+        "Extract a consolidated income statement (P&L) from the given HTML content. "
+        "Output ONLY JSON with fields: "
+        "{ \"unit\": \"millions|thousands|billions|ones\", "
+        "\"items\": [ {\"label\": \"Revenue\", \"year\": 2024, \"value\": 1234.56}, ... ] }. "
+        "Values should be in the stated unit (e.g., if unit=millions, values are millions). "
+        "Include at least Revenue, Cost of revenue/COGS, Gross profit, Operating income, Income before taxes, Net income for the last 3 reported years if available."
     )
     try:
         resp = _llm_chat(
@@ -131,17 +132,23 @@ def _llm_extract_is(raw_html: str) -> pd.DataFrame:
         )
         txt = resp.strip()
         if txt.startswith("```"):
-            txt = txt.split("```", 2)[1]
+            parts = txt.split("```")
+            if len(parts) >= 3:
+                txt = parts[1]
             if txt.startswith("json"):
                 txt = txt[len("json"):].strip()
         data = json.loads(txt)
+        unit = str(data.get("unit", "millions")).lower()
+        if unit not in {"millions", "thousands", "billions", "ones"}:
+            unit = "millions"
+        items = data.get("items", [])
         rows = []
-        for item in data:
+        for item in items:
             label = str(item.get("label", "")).strip()
             year = int(item.get("year", 0))
             val = float(item.get("value", 0))
             if label and 1900 < year < 2100:
-                rows.append({"label_raw": label, "year": year, "value": val, "scale_hint": "millions"})
+                rows.append({"label_raw": label, "year": year, "value": val, "scale_hint": unit})
         return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["label_raw", "year", "value", "scale_hint"])
     except Exception as e:
         print(f"[WARN] LLM extraction failed: {e}")
@@ -267,7 +274,13 @@ def _map_and_save(
     print(view.to_string(index=False))
     print(f"✅ Extracted financial data to {csv_path}")
     try:
-        LAST_META_PATH.write_text(json.dumps({"table_index": table_idx, "use_llm_for_tables": use_llm_tables}, indent=2))
+        meta = {
+            "table_index": table_idx,
+            "use_llm_for_tables": use_llm_tables,
+            "units": inferred,
+            "years": sorted(view["year"].unique().tolist()),
+        }
+        LAST_META_PATH.write_text(json.dumps(meta, indent=2))
     except Exception as e:
         print(f"[WARN] Could not save metadata: {e}")
     return csv_path
@@ -568,6 +581,7 @@ def step2_create_mid_product(
     data_years = sorted(df_pivot['year'].unique().tolist()) if not df_pivot.empty else []
     if data_years:
         base_year = data_years[0]
+        # Fill all columns E-M with sequential years so projections align after actuals
         for offset in range(0, 9):  # E to M inclusive
             year = base_year + offset
             col_idx = 5 + offset
@@ -726,7 +740,8 @@ def _attach_validation_sheet(final_path: Path, summary_path: Path) -> None:
 
     pivot = (
         df.pivot_table(index="coa", columns="year", values="value", aggfunc="sum")
-        .reindex(["Revenue", "COGS", "Gross Profit", "Operating Income (EBIT)", "Income Before Taxes", "Net Income"])
+        .reindex(["Revenue", "COGS", "Gross Profit", "Operating Income (EBIT)", "Income Before Taxes", "Net Income",
+                  "General & Administrative", "Sales & Marketing", "Research & Development"])
     )
 
     wb = load_workbook(final_path)
@@ -735,12 +750,15 @@ def _attach_validation_sheet(final_path: Path, summary_path: Path) -> None:
         wb.remove(ws)
     ws = wb.create_sheet("Validation")
 
-    ws["A1"] = "Extracted P&L (millions)"
+    ws["A1"] = "Extracted P&L"
     # Metadata
+    units = "millions"
     if LAST_META_PATH.exists():
         try:
             meta = json.loads(LAST_META_PATH.read_text())
             ws["A2"] = f"Table index: {meta.get('table_index')}, LLM table select: {meta.get('use_llm_for_tables')}"
+            units = meta.get("units", units)
+            ws["A3"] = f"Units: {units}"
         except Exception:
             pass
     # headers
