@@ -112,6 +112,16 @@ def custom_tidy_is(df: pd.DataFrame) -> pd.DataFrame:
     Custom tidying for income statement tables from pd.read_html.
     Handles tables with complex headers and numeric columns.
     """
+    detected_scale = "units"
+    # Inspect top rows for scale hints before dropping
+    top_blob = " ".join(df.head(6).astype(str).stack().tolist()).lower()
+    if "million" in top_blob:
+        detected_scale = "millions"
+    elif "thousand" in top_blob:
+        detected_scale = "thousands"
+    elif "billion" in top_blob:
+        detected_scale = "billions"
+
     # Drop completely empty columns to simplify year detection
     df = df.dropna(axis=1, how="all").reset_index(drop=True)
 
@@ -274,8 +284,8 @@ def custom_tidy_is(df: pd.DataFrame) -> pd.DataFrame:
                 continue
             val = to_number(r[col_idx])
             if val is not None:
-                # Use 'units' as default so infer_scale can detect thousands/millions/billions from header
-                rows.append({"label_raw": label, "year": year, "value": val, "scale_hint": "units"})
+                # Use detected scale hint so infer_scale can refine only when unknown
+                rows.append({"label_raw": label, "year": year, "value": val, "scale_hint": detected_scale})
     
     return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["label_raw", "year", "value", "scale_hint"])
 
