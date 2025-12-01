@@ -506,14 +506,16 @@ def step2_create_mid_product(
     year_map = {}
     base_year = None
 
-    # Anchor the template to the last three data years (most recent on the right)
+    # Anchor the template to the earliest data year and fill sequentially across projections
     data_years = sorted(df_pivot['year'].unique().tolist()) if not df_pivot.empty else []
     if data_years:
-        last_three = data_years[-3:]
-        for idx, year in enumerate(last_three):
-            col_idx = 5 + idx  # E, F, G
-            year_map[year] = col_idx
-            ws.cell(row=4, column=col_idx).value = year
+        base_year = data_years[0]
+        for offset in range(0, 9):  # E to M inclusive
+            year = base_year + offset
+            col_idx = 5 + offset
+            if col_idx < 14:
+                year_map[year] = col_idx
+                ws.cell(row=4, column=col_idx).value = year
     else:
         # Fallback to whatever is present in the template
         for col_idx in range(5, 14):  # E to M (cols 5-13)
@@ -702,6 +704,14 @@ def _attach_validation_sheet(final_path: Path, summary_path: Path) -> None:
         cell.number_format = "#,##0;(#,##0)"
         return cell
 
+    def get_val(label: str, year: int) -> float:
+        if label in pivot.index and year in pivot.columns:
+            try:
+                return float(pivot.loc[label, year])
+            except Exception:
+                return 0.0
+        return 0.0
+
     row_idx = 3
     for coa_key, display in label_map.items():
         ws.cell(row=row_idx, column=1, value=display)
@@ -714,9 +724,9 @@ def _attach_validation_sheet(final_path: Path, summary_path: Path) -> None:
     # Simple check: Gross Profit vs Revenue + COGS
     ws.cell(row=row_idx, column=1, value="Check: Gross = Revenue + COGS (difference)")
     for j, year in enumerate(years, start=2):
-        rev = pivot.at["Revenue", year] if ("Revenue" in pivot.index and year in pivot.columns) else 0
-        cogs = pivot.at["COGS", year] if ("COGS" in pivot.index and year in pivot.columns) else 0
-        gp = pivot.at["Gross Profit", year] if ("Gross Profit" in pivot.index and year in pivot.columns) else 0
+        rev = get_val("Revenue", year)
+        cogs = get_val("COGS", year)
+        gp = get_val("Gross Profit", year)
         diff = (rev + cogs) - gp
         c = fmt_number(ws.cell(row=row_idx, column=j, value=diff))
         if abs(diff) > 1e-2:
@@ -726,13 +736,13 @@ def _attach_validation_sheet(final_path: Path, summary_path: Path) -> None:
     # Operating income check: Revenue + COGS + SG&A + R&D vs Operating Income
     ws.cell(row=row_idx, column=1, value="Check: Operating Income vs derived (difference)")
     for j, year in enumerate(years, start=2):
-        rev = pivot.at["Revenue", year] if ("Revenue" in pivot.index and year in pivot.columns) else 0
-        cogs = pivot.at["COGS", year] if ("COGS" in pivot.index and year in pivot.columns) else 0
-        gna = pivot.at.get("General & Administrative", {}).get(year, 0) if isinstance(pivot, pd.DataFrame) else 0
-        sgna = pivot.at.get("Sales & Marketing", {}).get(year, 0) if isinstance(pivot, pd.DataFrame) else 0
-        rnd = pivot.at.get("Research & Development", {}).get(year, 0) if isinstance(pivot, pd.DataFrame) else 0
+        rev = get_val("Revenue", year)
+        cogs = get_val("COGS", year)
+        gna = get_val("General & Administrative", year)
+        sgna = get_val("Sales & Marketing", year)
+        rnd = get_val("Research & Development", year)
         derived = rev + cogs + gna + sgna + rnd
-        oi = pivot.at["Operating Income (EBIT)", year] if ("Operating Income (EBIT)" in pivot.index and year in pivot.columns) else 0
+        oi = get_val("Operating Income (EBIT)", year)
         diff = derived - oi
         c = fmt_number(ws.cell(row=row_idx, column=j, value=diff))
         if abs(diff) > 1e-2:
@@ -742,9 +752,9 @@ def _attach_validation_sheet(final_path: Path, summary_path: Path) -> None:
     # Net income check: Income Before Taxes + Income Tax Expense vs Net Income
     ws.cell(row=row_idx, column=1, value="Check: Net Income vs PBT + Tax (difference)")
     for j, year in enumerate(years, start=2):
-        pbt = pivot.at["Income Before Taxes", year] if ("Income Before Taxes" in pivot.index and year in pivot.columns) else 0
-        tax = pivot.at["Income Tax Expense", year] if ("Income Tax Expense" in pivot.index and year in pivot.columns) else 0
-        ni = pivot.at["Net Income", year] if ("Net Income" in pivot.index and year in pivot.columns) else 0
+        pbt = get_val("Income Before Taxes", year)
+        tax = get_val("Income Tax Expense", year)
+        ni = get_val("Net Income", year)
         diff = (pbt + tax) - ni
         c = fmt_number(ws.cell(row=row_idx, column=j, value=diff))
         if abs(diff) > 1e-2:
