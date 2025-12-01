@@ -628,8 +628,15 @@ def step2_create_mid_product(
         'Net Income': 'Total EBITDA',
     }
 
-    # Add units note
-    ws['D2'] = f"Units: {hint or 'millions'}"
+    # Units note from metadata if available
+    units = "millions"
+    if LAST_META_PATH.exists():
+        try:
+            meta = json.loads(LAST_META_PATH.read_text())
+            units = meta.get("units", units)
+        except Exception:
+            pass
+    ws['D2'] = f"Units: {units}"
 
     # Find template row indices
     template_rows = {}
