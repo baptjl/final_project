@@ -81,7 +81,7 @@ def _rank_tables(dfs: List[pd.DataFrame], use_llm: bool) -> List[int]:
 
     if use_llm:
         top_candidates = scored_sorted[:6]
-        summaries = [_summarize_table(dfs[idx], idx) for idx in top_candidates]
+        summaries = [_summarize_table(dfs[idx], idx)[:1000] for idx in top_candidates]  # cap payload per table
         prompt = (
             "You are selecting the INCOME STATEMENT table from scraped HTML tables. "
             "Pick the one that most likely represents a P&L (Revenue/Net sales, Cost of sales/COGS, "
