@@ -145,29 +145,77 @@ def custom_tidy_is(df: pd.DataFrame) -> pd.DataFrame:
     # Strategy: look at the first few rows per column for a year token, then map that
     # year to the nearest numeric column (current or next few columns).
     year_map: Dict[int, int] = {}
-    for idx, col_label in enumerate(df.columns):
-        header_bits = [str(col_label)]
-        for r in range(min(6, len(df))):
-            header_bits.append(str(df.iloc[r, idx]))
-        blob = " ".join(header_bits)
-        m = YEAR_RE.search(blob)
-        if not m:
-            continue
-        year = int(m.group(1))
-        if year in year_map.values():
-            continue
-        # Pick this column or the next couple columns that actually contain numbers
-        numeric_target = None
-        for j in range(idx, min(idx + 3, len(df.columns))):
-            try:
-                col_vals = pd.to_numeric(df.iloc[:, j], errors='coerce').dropna()
-                if len(col_vals) > 0:
-                    numeric_target = df.columns[j]
-                    break
-            except Exception:
+
+    # 1) Try to find the row with the most year tokens and map each year token
+    # to the nearest numeric-dominant column to its right.
+    year_row_idx = None
+    max_years_in_row = 0
+    for i in range(min(8, len(df))):
+        yrs = YEAR_RE.findall(" ".join(df.iloc[i].astype(str).tolist()))
+        if len(yrs) > max_years_in_row:
+            max_years_in_row = len(yrs)
+            year_row_idx = i
+
+    if year_row_idx is not None and max_years_in_row > 0:
+        row_vals = df.iloc[year_row_idx]
+        for idx, val in row_vals.items():
+            m = YEAR_RE.search(str(val))
+            if not m:
                 continue
-        numeric_target = numeric_target if numeric_target is not None else col_label
-        year_map[numeric_target] = year
+            year = int(m.group(1))
+            if year in year_map.values():
+                continue
+            # search to the right for a numeric-dominant column
+            numeric_target = None
+            for j in range(df.columns.get_loc(idx) + 1, min(df.columns.get_loc(idx) + 4, len(df.columns))):
+                col_label = df.columns[j]
+                try:
+                    # Clean numbers similarly to to_number for better detection
+                    def _clean_num(x):
+                        s = str(x).strip().replace(",", "").replace("$", "")
+                        if s.startswith("(") and s.endswith(")"):
+                            s = "-" + s[1:-1]
+                        try:
+                            return float(s)
+                        except Exception:
+                            return None
+                    cleaned = df.loc[year_row_idx + 1 :, col_label].map(_clean_num)
+                    valid = cleaned.dropna()
+                    numeric_ratio = (len(valid) / max(1, len(cleaned)))
+                    if numeric_ratio > 0.2:  # has numeric data
+                        numeric_target = col_label
+                        break
+                except Exception:
+                    continue
+            if numeric_target is None:
+                numeric_target = idx
+            year_map[numeric_target] = year
+
+    # 2) If still empty, fall back to per-column header scan
+    if not year_map:
+        for idx, col_label in enumerate(df.columns):
+            header_bits = [str(col_label)]
+            for r in range(min(6, len(df))):
+                header_bits.append(str(df.iloc[r, idx]))
+            blob = " ".join(header_bits)
+            m = YEAR_RE.search(blob)
+            if not m:
+                continue
+            year = int(m.group(1))
+            if year in year_map.values():
+                continue
+            # Pick this column or the next couple columns that actually contain numbers
+            numeric_target = None
+            for j in range(idx, min(idx + 3, len(df.columns))):
+                try:
+                    col_vals = pd.to_numeric(df.iloc[:, j], errors='coerce').dropna()
+                    if len(col_vals) > 0:
+                        numeric_target = df.columns[j]
+                        break
+                except Exception:
+                    continue
+            numeric_target = numeric_target if numeric_target is not None else col_label
+            year_map[numeric_target] = year
 
     if not year_map and years_found:
         # Fallback: use rightmost numeric-ish columns matched to detected years
