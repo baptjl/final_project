@@ -686,7 +686,43 @@ def step2_create_mid_product(
     def _coord(r, c):
         return f"{get_column_letter(c)}{r}"
 
+    # Assumption cells (fixed)
+    ASSUMP = {
+        "rev": "Q5",
+        "cogs": "Q6",
+        "sgna": "Q7",
+        "rnd": "Q8",
+        "capex": "Q9",
+        "other": "Q10",
+    }
+
+    # Format all cells to Arial 12
+    for row in ws.iter_rows():
+        for cell in row:
+            if cell.value is not None:
+                cell.font = Font(name="Arial", size=12, bold=cell.font.bold, italic=cell.font.italic, color=cell.font.color)
+
     for year, col_idx in year_map.items():
+        # Actuals/projections formulas
+        # Projected revenue/COGS/SG&A/R&D/Other/Capex: prior year * (1 + assumption)
+        if year > min(year_map.keys()):
+            prior_year = year - 1
+            prior_col = year_map.get(prior_year)
+            if prior_col:
+                if rev_row:
+                    ws.cell(row=rev_row, column=col_idx).value = f"={_coord(rev_row, prior_col)}*(1+{ASSUMP['rev']})"
+                if cogs_row:
+                    ws.cell(row=cogs_row, column=col_idx).value = f"={_coord(cogs_row, prior_col)}*(1+{ASSUMP['cogs']})"
+                if sgna_row:
+                    ws.cell(row=sgna_row, column=col_idx).value = f"={_coord(sgna_row, prior_col)}*(1+{ASSUMP['sgna']})"
+                if rnd_row:
+                    ws.cell(row=rnd_row, column=col_idx).value = f"={_coord(rnd_row, prior_col)}*(1+{ASSUMP['rnd']})"
+                if other_row:
+                    ws.cell(row=other_row, column=col_idx).value = f"={_coord(other_row, prior_col)}*(1+{ASSUMP['other']})"
+                if capex_row:
+                    ws.cell(row=capex_row, column=col_idx).value = f"={_coord(capex_row, prior_col)}*(1+{ASSUMP['capex']})"
+
+        # Gross Profit, Organic EBITDA, Total EBITDA formulas
         if rev_row and cogs_row and gp_row:
             ws.cell(row=gp_row, column=col_idx).value = f"={_coord(rev_row,col_idx)}+{_coord(cogs_row,col_idx)}"
             ws.cell(row=gp_row, column=col_idx).number_format = "#,##0;(#,##0)"
@@ -698,6 +734,22 @@ def step2_create_mid_product(
         if organic_row and other_row and total_row:
             ws.cell(row=total_row, column=col_idx).value = f"={_coord(organic_row,col_idx)}+{_coord(other_row,col_idx)}"
             ws.cell(row=total_row, column=col_idx).number_format = "#,##0;(#,##0)"
+
+    # % rows link to assumptions for projected years
+    pct_rows = {
+        "cogs": template_rows.get("COGS"),
+        "sgna": template_rows.get("SG&A"),
+        "rnd": template_rows.get("R&D"),
+        "other": template_rows.get("Other Income"),
+    }
+    for key, row_idx in pct_rows.items():
+        if not row_idx:
+            continue
+        pct_row = row_idx + 1  # the % row is immediately below the value row
+        for year, col_idx in year_map.items():
+            # Only set for projected years (beyond initial actual columns)
+            if year > sorted(year_map.keys())[0] + 2:  # assume first 3 are actuals
+                ws.cell(row=pct_row, column=col_idx).value = f"={ASSUMP[key]}"
     
     # Save
     output_path.parent.mkdir(parents=True, exist_ok=True)
