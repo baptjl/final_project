@@ -114,6 +114,10 @@ def _llm_extract_is(raw_html: str) -> pd.DataFrame:
     Ask LLM to extract income statement figures from raw HTML.
     Returns DataFrame with label_raw, year, value, scale_hint.
     """
+    # Cap payload size to avoid OOM/timeouts in constrained environments
+    RAW_LIMIT = 20000  # characters
+    html_payload = raw_html[:RAW_LIMIT]
+
     prompt = (
         "Extract a consolidated income statement (P&L) from the given HTML content. "
         "Output ONLY JSON with fields: "
@@ -126,7 +130,7 @@ def _llm_extract_is(raw_html: str) -> pd.DataFrame:
         resp = _llm_chat(
             [
                 {"role": "system", "content": "You extract structured financials from HTML."},
-                {"role": "user", "content": prompt + "\nHTML:\n" + raw_html[:60000]},
+                {"role": "user", "content": prompt + "\nHTML:\n" + html_payload},
             ],
             temperature=0.0,
         )
