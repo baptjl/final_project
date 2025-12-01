@@ -682,6 +682,7 @@ def step2_create_mid_product(
     organic_row = template_rows.get("Organic EBITDA")
     other_row = template_rows.get("Other Income")
     total_row = template_rows.get("Total EBITDA")
+    capex_row = template_rows.get("Capex")
 
     def _coord(r, c):
         return f"{get_column_letter(c)}{r}"
@@ -702,10 +703,12 @@ def step2_create_mid_product(
             if cell.value is not None:
                 cell.font = Font(name="Arial", size=12, bold=cell.font.bold, italic=cell.font.italic, color=cell.font.color)
 
+    actual_years = data_years if data_years else []
+    max_actual_year = max(actual_years) if actual_years else None
+
     for year, col_idx in year_map.items():
-        # Actuals/projections formulas
-        # Projected revenue/COGS/SG&A/R&D/Other/Capex: prior year * (1 + assumption)
-        if year > min(year_map.keys()):
+        # Projected revenue/COGS/SG&A/R&D/Other/Capex: prior year * (1 + assumption) only for projected years
+        if max_actual_year and year > max_actual_year:
             prior_year = year - 1
             prior_col = year_map.get(prior_year)
             if prior_col:
@@ -747,8 +750,8 @@ def step2_create_mid_product(
             continue
         pct_row = row_idx + 1  # the % row is immediately below the value row
         for year, col_idx in year_map.items():
-            # Only set for projected years (beyond initial actual columns)
-            if year > sorted(year_map.keys())[0] + 2:  # assume first 3 are actuals
+            # Only set for projected years (beyond actual years)
+            if max_actual_year and year > max_actual_year:
                 ws.cell(row=pct_row, column=col_idx).value = f"={ASSUMP[key]}"
     
     # Save
