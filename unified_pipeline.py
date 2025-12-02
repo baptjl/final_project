@@ -736,14 +736,19 @@ def step2_create_mid_product(
                     ws.cell(row=rev_row, column=col_idx).value = f"={_coord(rev_row, prior_col)}*(1+{ASSUMP['rev']})"
                 if cogs_row:
                     ws.cell(row=cogs_row, column=col_idx).value = f"={_coord(rev_row, col_idx)}*{ASSUMP['cogs']}"
+                    ws.cell(row=cogs_row, column=col_idx).number_format = "#,##0;(#,##0)"
                 if sgna_row:
-                    ws.cell(row=sgna_row, column=col_idx).value = f"={_coord(sgna_row, prior_col)}*(1+{ASSUMP['sgna']})"
+                    ws.cell(row=sgna_row, column=col_idx).value = f"={_coord(rev_row, col_idx)}*{ASSUMP['sgna']}"
+                    ws.cell(row=sgna_row, column=col_idx).number_format = "#,##0;(#,##0)"
                 if rnd_row:
-                    ws.cell(row=rnd_row, column=col_idx).value = f"={_coord(rnd_row, prior_col)}*(1+{ASSUMP['rnd']})"
+                    ws.cell(row=rnd_row, column=col_idx).value = f"={_coord(rev_row, col_idx)}*{ASSUMP['rnd']}"
+                    ws.cell(row=rnd_row, column=col_idx).number_format = "#,##0;(#,##0)"
                 if other_row:
-                    ws.cell(row=other_row, column=col_idx).value = f"={_coord(other_row, prior_col)}*(1+{ASSUMP['other']})"
+                    ws.cell(row=other_row, column=col_idx).value = f"={_coord(rev_row, col_idx)}*{ASSUMP['other']}"
+                    ws.cell(row=other_row, column=col_idx).number_format = "#,##0;(#,##0)"
                 if capex_row:
-                    ws.cell(row=capex_row, column=col_idx).value = f"={_coord(capex_row, prior_col)}*(1+{ASSUMP['capex']})"
+                    ws.cell(row=capex_row, column=col_idx).value = f"={_coord(rev_row, col_idx)}*{ASSUMP['capex']}"
+                    ws.cell(row=capex_row, column=col_idx).number_format = "#,##0;(#,##0)"
 
         # Gross Profit, Organic EBITDA, Total EBITDA formulas
         if rev_row and cogs_row and gp_row:
