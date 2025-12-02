@@ -990,6 +990,14 @@ def _apply_projection_formulas(final_path: Path) -> None:
     other_row = get_row("Other Income")
     total_row = get_row("Total EBITDA")
     capex_row = get_row("Capex")
+    # Percent/margin rows (assume immediate next row)
+    rev_growth_row = rev_row + 1 if rev_row else None
+    cogs_pct_row = cogs_row + 1 if cogs_row else None
+    sgna_pct_row = sgna_row + 1 if sgna_row else None
+    rnd_pct_row = rnd_row + 1 if rnd_row else None
+    other_pct_row = other_row + 1 if other_row else None
+    gp_margin_row = gp_row + 1 if gp_row else None
+    total_margin_row = total_row + 1 if total_row else None
 
     # Assumption cells
     ASSUMP = {
@@ -1044,22 +1052,59 @@ def _apply_projection_formulas(final_path: Path) -> None:
             ws.cell(row=total_row, column=col_idx).value = f"={_coord(organic_row,col_idx)}+{_coord(other_row,col_idx)}"
             ws.cell(row=total_row, column=col_idx).number_format = "#,##0;(#,##0)"
 
-    # % rows for projected years
-    pct_rows = {
-        "cogs": cogs_row,
-        "sgna": sgna_row,
-        "rnd": rnd_row,
-        "other": other_row,
-    }
-    for key, row_idx in pct_rows.items():
-        if not row_idx:
-            continue
-        pct_row = row_idx + 1
-        for year, col_idx in year_map.items():
-            if max_actual_year and year > max_actual_year:
-                cell = ws.cell(row=pct_row, column=col_idx)
-                cell.value = f"={ASSUMP[key]}"
+        # Growth row projected: link to assumption
+        if rev_growth_row and max_actual_year and year > max_actual_year:
+            gcell = ws.cell(row=rev_growth_row, column=col_idx)
+            gcell.value = f"={ASSUMP['rev']}"
+            gcell.number_format = "0%;(0%)"
+
+        # Percent rows projected: link to assumption (absolute)
+        if cogs_pct_row and max_actual_year and year > max_actual_year:
+            cell = ws.cell(row=cogs_pct_row, column=col_idx)
+            cell.value = f"=ABS({ASSUMP['cogs']})"
+            cell.number_format = "0%;(0%)"
+        if sgna_pct_row and max_actual_year and year > max_actual_year:
+            cell = ws.cell(row=sgna_pct_row, column=col_idx)
+            cell.value = f"=ABS({ASSUMP['sgna']})"
+            cell.number_format = "0%;(0%)"
+        if rnd_pct_row and max_actual_year and year > max_actual_year:
+            cell = ws.cell(row=rnd_pct_row, column=col_idx)
+            cell.value = f"=ABS({ASSUMP['rnd']})"
+            cell.number_format = "0%;(0%)"
+        if other_pct_row and max_actual_year and year > max_actual_year:
+            cell = ws.cell(row=other_pct_row, column=col_idx)
+            cell.value = f"=ABS({ASSUMP['other']})"
+            cell.number_format = "0%;(0%)"
+
+        # Percent rows actuals: compute from values, absolute
+        if max_actual_year and year <= max_actual_year and rev_row:
+            rev_val = _coord(rev_row, col_idx)
+            if cogs_pct_row and cogs_row:
+                cell = ws.cell(row=cogs_pct_row, column=col_idx)
+                cell.value = f"=ABS({_coord(cogs_row,col_idx)}/{rev_val})"
                 cell.number_format = "0%;(0%)"
+            if sgna_pct_row and sgna_row:
+                cell = ws.cell(row=sgna_pct_row, column=col_idx)
+                cell.value = f"=ABS({_coord(sgna_row,col_idx)}/{rev_val})"
+                cell.number_format = "0%;(0%)"
+            if rnd_pct_row and rnd_row:
+                cell = ws.cell(row=rnd_pct_row, column=col_idx)
+                cell.value = f"=ABS({_coord(rnd_row,col_idx)}/{rev_val})"
+                cell.number_format = "0%;(0%)"
+            if other_pct_row and other_row:
+                cell = ws.cell(row=other_pct_row, column=col_idx)
+                cell.value = f"=ABS({_coord(other_row,col_idx)}/{rev_val})"
+                cell.number_format = "0%;(0%)"
+
+        # Margins: GP and Total EBITDA
+        if gp_margin_row and rev_row and gp_row:
+            cell = ws.cell(row=gp_margin_row, column=col_idx)
+            cell.value = f"=ABS({_coord(rev_row,col_idx)}+{_coord(cogs_row,col_idx)})/{_coord(rev_row,col_idx)}" if cogs_row else ""
+            cell.number_format = "0%;(0%)"
+        if total_margin_row and rev_row and total_row:
+            cell = ws.cell(row=total_margin_row, column=col_idx)
+            cell.value = f"=ABS({_coord(total_row,col_idx)}/{_coord(rev_row,col_idx)})"
+            cell.number_format = "0%;(0%)"
 
     wb.save(final_path)
 
