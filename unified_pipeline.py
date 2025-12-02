@@ -1062,6 +1062,7 @@ def _apply_projection_formulas(final_path: Path) -> None:
     sgna_pct_row = sgna_row + 1 if sgna_row else None
     rnd_pct_row = rnd_row + 1 if rnd_row else None
     other_pct_row = other_row + 1 if other_row else None
+    capex_pct_row = capex_row + 1 if capex_row else None
     gp_margin_row = gp_row + 1 if gp_row else None
     total_margin_row = total_row + 1 if total_row else None
 
@@ -1128,7 +1129,7 @@ def _apply_projection_formulas(final_path: Path) -> None:
                     ws.cell(row=other_row, column=col_idx).value = f"=-{_coord(rev_row, col_idx)}*{pct_cell}"
                     ws.cell(row=other_row, column=col_idx).number_format = "#,##0;(#,##0)"
                 if capex_row:
-                    pct_cell = _coord(capex_row + 1, col_idx) if capex_row else ASSUMP['capex']
+                    pct_cell = _coord(capex_pct_row, col_idx) if capex_pct_row else ASSUMP['capex']
                     ws.cell(row=capex_row, column=col_idx).value = f"=-{_coord(rev_row, col_idx)}*{pct_cell}"
                     ws.cell(row=capex_row, column=col_idx).number_format = "#,##0;(#,##0)"
 
@@ -1178,7 +1179,7 @@ def _apply_projection_formulas(final_path: Path) -> None:
             cell = ws.cell(row=other_pct_row, column=col_idx)
             cell.value = f"=ABS({ASSUMP['other']})"
             cell.number_format = "0%;(0%)"
-        if 'capex_pct_row' in locals() and capex_pct_row and max_actual_year and year > max_actual_year:
+        if capex_pct_row and max_actual_year and year > max_actual_year:
             cell = ws.cell(row=capex_pct_row, column=col_idx)
             cell.value = f"=ABS({ASSUMP['capex']})"
             cell.number_format = "0%;(0%)"
@@ -1202,7 +1203,7 @@ def _apply_projection_formulas(final_path: Path) -> None:
                 cell = ws.cell(row=other_pct_row, column=col_idx)
                 cell.value = f"=ABS({_coord(other_row,col_idx)}/{rev_val})"
                 cell.number_format = "0%;(0%)"
-            if 'capex_pct_row' in locals() and capex_pct_row and capex_row:
+            if capex_pct_row and capex_row:
                 cell = ws.cell(row=capex_pct_row, column=col_idx)
                 cell.value = f"=ABS({_coord(capex_row,col_idx)}/{rev_val})"
                 cell.number_format = "0%;(0%)"
