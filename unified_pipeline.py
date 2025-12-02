@@ -735,7 +735,7 @@ def step2_create_mid_product(
                 if rev_row:
                     ws.cell(row=rev_row, column=col_idx).value = f"={_coord(rev_row, prior_col)}*(1+{ASSUMP['rev']})"
                 if cogs_row:
-                    ws.cell(row=cogs_row, column=col_idx).value = f"={_coord(cogs_row, prior_col)}*(1+{ASSUMP['cogs']})"
+                    ws.cell(row=cogs_row, column=col_idx).value = f"={_coord(rev_row, col_idx)}*{ASSUMP['cogs']}"
                 if sgna_row:
                     ws.cell(row=sgna_row, column=col_idx).value = f"={_coord(sgna_row, prior_col)}*(1+{ASSUMP['sgna']})"
                 if rnd_row:
