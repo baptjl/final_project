@@ -159,12 +159,43 @@ def _llm_extract_is(raw_html: str) -> pd.DataFrame:
         return pd.DataFrame(columns=["label_raw", "year", "value", "scale_hint"])
 
 
+def _llm_detect_unit(raw_html: str) -> Optional[str]:
+    """
+    Ask LLM to infer units (ones/thousands/millions/billions) from a small HTML snippet.
+    """
+    snippet = raw_html[:5000]
+    prompt = (
+        "You are determining the numerical unit used in a financial table. "
+        "Based on the snippet, answer with one word only: ones, thousands, millions, or billions."
+    )
+    try:
+        resp = _llm_chat(
+            [
+                {"role": "system", "content": "Determine the unit for financial figures."},
+                {"role": "user", "content": prompt + "\nSNIPPET:\n" + snippet},
+            ],
+            temperature=0.0,
+        ).strip().lower()
+        if any(tok in resp for tok in ["billion", "billions"]):
+            return "billions"
+        if any(tok in resp for tok in ["million", "millions"]):
+            return "millions"
+        if any(tok in resp for tok in ["thousand", "thousands"]):
+            return "thousands"
+        if any(tok in resp for tok in ["one", "ones", "unit", "units"]):
+            return "units"
+    except Exception as e:
+        print(f"[WARN] LLM unit detection failed: {e}")
+    return None
+
+
 def _map_and_save(
     t: pd.DataFrame,
     hdr_blob: str,
     use_llm_tables: bool,
     table_idx: int,
-    skip_llm: bool
+    skip_llm: bool,
+    unit_hint: Optional[str] = None
 ) -> Optional[Path]:
     """
     Common mapping/validation/save path for extracted tidy data.
@@ -173,7 +204,7 @@ def _map_and_save(
     if t is None or t.empty:
         return None
 
-    hint = t["scale_hint"].iloc[0] if "scale_hint" in t.columns and len(t) else "units"
+    hint = unit_hint or (t["scale_hint"].iloc[0] if "scale_hint" in t.columns and len(t) else "units")
     sample_max = 0
     if len(t):
         try:
@@ -190,6 +221,9 @@ def _map_and_save(
     if hint == "thousands" and sample_max >= 1e6:
         hint = "units"
     inferred = infer_scale(hdr_blob[:400], sample_vals) if hint == "units" else hint
+    # Heuristic override: if values look too small (hundreds) but scale isn't explicit, assume millions
+    if sample_max and sample_max < 10000 and inferred in {"units", "thousands"}:
+        inferred = "millions"
     factor = SCALE_FACTORS.get(inferred, 1.0)
     t["value"] = t["value"] * factor
 
@@ -499,12 +533,17 @@ def step1_extract_from_html(html_path: Path, skip_llm: bool = True) -> Path:
     
     raw = html_path.read_text(errors="ignore")
     
+    # LLM unit hint (lightweight)
+    unit_hint = None
+    if not skip_llm:
+        unit_hint = _llm_detect_unit(raw)
+
     # First try LLM-based extraction if enabled
     if not skip_llm and USE_LLM_EXTRACTION:
         print("[INFO] Trying LLM-based extraction first...")
         t_llm = _llm_extract_is(raw)
         if t_llm is not None and not t_llm.empty:
-            csv_path = _map_and_save(t_llm, raw[:400], use_llm_tables=True, table_idx=-1, skip_llm=skip_llm)
+            csv_path = _map_and_save(t_llm, raw[:400], use_llm_tables=True, table_idx=-1, skip_llm=skip_llm, unit_hint=unit_hint)
             if csv_path:
                 return csv_path
         print("[WARN] LLM extraction failed or returned empty; falling back to table parsing.")
@@ -534,7 +573,7 @@ def step1_extract_from_html(html_path: Path, skip_llm: bool = True) -> Path:
             t = tidy_is(is_df_raw)
         if t is None or t.empty:
             continue
-        csv_path = _map_and_save(t, " ".join(map(str, is_df_raw.columns)).lower(), use_llm_tables, is_idx, skip_llm)
+        csv_path = _map_and_save(t, " ".join(map(str, is_df_raw.columns)).lower(), use_llm_tables, is_idx, skip_llm, unit_hint=unit_hint)
         if csv_path:
             good = True
             return csv_path
@@ -709,6 +748,7 @@ def step2_create_mid_product(
     sgna_pct_row = sgna_row + 1 if sgna_row else None
     rnd_pct_row = rnd_row + 1 if rnd_row else None
     other_pct_row = other_row + 1 if other_row else None
+    capex_pct_row = capex_row + 1 if capex_row else None
     gp_margin_row = gp_row + 1 if gp_row else None
     total_margin_row = total_row + 1 if total_row else None
 
@@ -761,7 +801,7 @@ def step2_create_mid_product(
                     ws.cell(row=other_row, column=col_idx).value = f"=-{_coord(rev_row, col_idx)}*{pct_cell}"
                     ws.cell(row=other_row, column=col_idx).number_format = "#,##0;(#,##0)"
                 if capex_row:
-                    pct_cell = _coord(capex_row + 1, col_idx) if capex_row else ASSUMP['capex']
+                    pct_cell = _coord(capex_pct_row, col_idx) if capex_pct_row else ASSUMP['capex']
                     ws.cell(row=capex_row, column=col_idx).value = f"=-{_coord(rev_row, col_idx)}*{pct_cell}"
                     ws.cell(row=capex_row, column=col_idx).number_format = "#,##0;(#,##0)"
 
