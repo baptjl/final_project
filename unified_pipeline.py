@@ -1057,7 +1057,9 @@ def _apply_projection_formulas(final_path: Path) -> None:
         pct_row = row_idx + 1
         for year, col_idx in year_map.items():
             if max_actual_year and year > max_actual_year:
-                ws.cell(row=pct_row, column=col_idx).value = f"={ASSUMP[key]}"
+                cell = ws.cell(row=pct_row, column=col_idx)
+                cell.value = f"={ASSUMP[key]}"
+                cell.number_format = "0%;(0%)"
 
     wb.save(final_path)
 
