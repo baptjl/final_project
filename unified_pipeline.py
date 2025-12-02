@@ -741,8 +741,8 @@ def step2_create_mid_product(
             prior_col = year_map.get(prior_year)
             if prior_col:
                 if rev_row:
-                    pct_cell = _coord(rev_growth_row, col_idx) if rev_growth_row else f"(1+{ASSUMP['rev']})"
-                    ws.cell(row=rev_row, column=col_idx).value = f"={_coord(rev_row, prior_col)}*{pct_cell}"
+                    pct_ref = _coord(rev_growth_row, col_idx) if rev_growth_row else ASSUMP['rev']
+                    ws.cell(row=rev_row, column=col_idx).value = f"={_coord(rev_row, prior_col)}*(1+{pct_ref})"
                 if cogs_row:
                     # value = - revenue * local pct row
                     pct_cell = _coord(cogs_pct_row, col_idx) if cogs_pct_row else ASSUMP['cogs']
@@ -1068,7 +1068,8 @@ def _apply_projection_formulas(final_path: Path) -> None:
             prior_col = year_map.get(prior_year)
             if prior_col:
                 if rev_row:
-                    ws.cell(row=rev_row, column=col_idx).value = f"={_coord(rev_row, prior_col)}*(1+{ASSUMP['rev']})"
+                    pct_ref = _coord(rev_growth_row, col_idx) if rev_growth_row else ASSUMP['rev']
+                    ws.cell(row=rev_row, column=col_idx).value = f"={_coord(rev_row, prior_col)}*(1+{pct_ref})"
                 # Use local pct rows for projected expenses (which in turn point to assumptions)
                 if cogs_row:
                     pct_cell = _coord(cogs_pct_row, col_idx) if cogs_pct_row else ASSUMP['cogs']
