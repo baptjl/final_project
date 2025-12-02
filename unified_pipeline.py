@@ -703,6 +703,14 @@ def step2_create_mid_product(
     other_row = template_rows.get("Other Income")
     total_row = template_rows.get("Total EBITDA")
     capex_row = template_rows.get("Capex")
+    # Percent/margin rows (assume immediate next row)
+    rev_growth_row = rev_row + 1 if rev_row else None
+    cogs_pct_row = cogs_row + 1 if cogs_row else None
+    sgna_pct_row = sgna_row + 1 if sgna_row else None
+    rnd_pct_row = rnd_row + 1 if rnd_row else None
+    other_pct_row = other_row + 1 if other_row else None
+    gp_margin_row = gp_row + 1 if gp_row else None
+    total_margin_row = total_row + 1 if total_row else None
 
     def _coord(r, c):
         return f"{get_column_letter(c)}{r}"
