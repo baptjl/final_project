@@ -193,7 +193,7 @@ def infer_scale(header_text: str, sample_values: List[float]) -> str:
     """
     Heuristic scale detector.
     - Look for 'thousands', 'millions', 'billions' in the header text.
-    - If no keywords, use magnitude of sample_values as a rough guess.
+    - If no keywords, default to 'units' to avoid rescaling.
     Returns one of: 'units', 'thousands', 'millions', 'billions'.
     """
     if not header_text:
@@ -207,17 +207,6 @@ def infer_scale(header_text: str, sample_values: List[float]) -> str:
         return "millions"
     if "billion" in h or "billions" in h or "bn" in h:
         return "billions"
-
-    # Magnitude-based detection
-    vals = [abs(x) for x in sample_values if x is not None]
-    if vals:
-        max_v = max(vals)
-        if max_v >= 1e11:
-            return "billions"
-        if max_v >= 1e8:
-            return "millions"
-        if max_v >= 1e5:
-            return "thousands"
 
     return "units"
 
