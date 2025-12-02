@@ -217,13 +217,22 @@ def _map_and_save(
         sample_vals = []
     if sample_vals:
         sample_max = max(abs(x) for x in sample_vals if x is not None)
-    # If hint says thousands but magnitudes are very large, override to millions
+    # If hint says thousands but magnitudes are very large, override to raw (we will re-infer)
     if hint == "thousands" and sample_max >= 1e6:
         hint = "units"
     inferred = infer_scale(hdr_blob[:400], sample_vals) if hint == "units" else hint
-    # Heuristic override: if values look too small (hundreds) but scale isn't explicit, assume millions
+
+    # Heuristics to reconcile declared unit vs magnitudes observed
+    # - If LLM/header says billions but the numbers are only 3-6 digits, it's likely millions.
+    # - If LLM/header says millions but numbers are 1-2 digits, assume thousands.
+    if inferred == "billions" and sample_max and sample_max < 1e7:
+        inferred = "millions"
+    if inferred == "millions" and sample_max and sample_max < 50:
+        inferred = "thousands"
+    # If values look too small (hundreds) but scale isn't explicit, assume millions
     if sample_max and sample_max < 10000 and inferred in {"units", "thousands"}:
         inferred = "millions"
+
     factor = SCALE_FACTORS.get(inferred, 1.0)
     t["value"] = t["value"] * factor
 
