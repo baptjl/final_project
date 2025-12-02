@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Unified Pipeline - Result</title>
+    <style>
+      body { font-family: Arial, sans-serif; max-width: 900px; margin: 2rem auto; }
+      pre { background:#f6f6f6; padding:1rem; border-radius:6px; overflow:auto }
+      .ok { color: green }
+      .err { color: red }
+      a.button { display:inline-block; margin-top:12px; background:#2b7cff; color:white; padding:8px 10px; border-radius:4px; text-decoration:none }
+    </style>
+  </head>
+  <body>
+    <h1>Pipeline Result</h1>
+    <h3>Stdout</h3>
+    <pre>{{ stdout }}</pre>
+    <h3>Stderr</h3>
+    <pre class="err">{{ stderr }}</pre>
+    {% if final_filename %}
+      <p><a class="button" href="{{ url_for('download', filename=final_filename) }}">Download Final.xlsx</a></p>
+    {% endif %}
+    <p><a href="/">Back</a></p>
+  </body>
+</html>
