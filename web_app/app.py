@@ -121,6 +121,8 @@ def index():
 
         # create output paths
         mid_name = f"mid_product_{unique_suffix}.xlsx"
+        safe_company = secure_filename(company) or "output"
+        final_download_name = f"{safe_company}_financial_modeling.xlsx"
         final_name = f"final_{unique_suffix}.xlsx"
         mid_path = os.path.join(OUTPUT_FOLDER, mid_name)
         final_path = os.path.join(OUTPUT_FOLDER, final_name)
@@ -159,7 +161,7 @@ def index():
         if request.form.get('ajax') == '1':
             if os.path.exists(final_path) and os.path.getsize(final_path) > 0:
                 # send file as attachment so the browser downloads it
-                return send_file(final_path, as_attachment=True, download_name=final_name)
+                return send_file(final_path, as_attachment=True, download_name=final_download_name)
             else:
                 body = f"Final file not found after processing.\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}"
                 return Response(body, status=500, mimetype='text/plain')
@@ -168,7 +170,7 @@ def index():
             flash('Final file not found after processing')
             final_for_template = None
         else:
-            final_for_template = final_name
+            final_for_template = final_download_name
 
         return render_template('result.html', stdout=stdout, stderr=stderr, final_filename=final_for_template)
 

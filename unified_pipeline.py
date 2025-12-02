@@ -735,19 +735,25 @@ def step2_create_mid_product(
                 if rev_row:
                     ws.cell(row=rev_row, column=col_idx).value = f"={_coord(rev_row, prior_col)}*(1+{ASSUMP['rev']})"
                 if cogs_row:
-                    ws.cell(row=cogs_row, column=col_idx).value = f"=-{_coord(rev_row, col_idx)}*{ASSUMP['cogs']}"
+                    # value = - revenue * local pct row
+                    pct_cell = _coord(cogs_pct_row, col_idx) if cogs_pct_row else ASSUMP['cogs']
+                    ws.cell(row=cogs_row, column=col_idx).value = f"=-{_coord(rev_row, col_idx)}*{pct_cell}"
                     ws.cell(row=cogs_row, column=col_idx).number_format = "#,##0;(#,##0)"
                 if sgna_row:
-                    ws.cell(row=sgna_row, column=col_idx).value = f"=-{_coord(rev_row, col_idx)}*{ASSUMP['sgna']}"
+                    pct_cell = _coord(sgna_pct_row, col_idx) if sgna_pct_row else ASSUMP['sgna']
+                    ws.cell(row=sgna_row, column=col_idx).value = f"=-{_coord(rev_row, col_idx)}*{pct_cell}"
                     ws.cell(row=sgna_row, column=col_idx).number_format = "#,##0;(#,##0)"
                 if rnd_row:
-                    ws.cell(row=rnd_row, column=col_idx).value = f"=-{_coord(rev_row, col_idx)}*{ASSUMP['rnd']}"
+                    pct_cell = _coord(rnd_pct_row, col_idx) if rnd_pct_row else ASSUMP['rnd']
+                    ws.cell(row=rnd_row, column=col_idx).value = f"=-{_coord(rev_row, col_idx)}*{pct_cell}"
                     ws.cell(row=rnd_row, column=col_idx).number_format = "#,##0;(#,##0)"
                 if other_row:
-                    ws.cell(row=other_row, column=col_idx).value = f"=-{_coord(rev_row, col_idx)}*{ASSUMP['other']}"
+                    pct_cell = _coord(other_pct_row, col_idx) if other_pct_row else ASSUMP['other']
+                    ws.cell(row=other_row, column=col_idx).value = f"=-{_coord(rev_row, col_idx)}*{pct_cell}"
                     ws.cell(row=other_row, column=col_idx).number_format = "#,##0;(#,##0)"
                 if capex_row:
-                    ws.cell(row=capex_row, column=col_idx).value = f"=-{_coord(rev_row, col_idx)}*{ASSUMP['capex']}"
+                    pct_cell = _coord(capex_row + 1, col_idx) if capex_row else ASSUMP['capex']
+                    ws.cell(row=capex_row, column=col_idx).value = f"=-{_coord(rev_row, col_idx)}*{pct_cell}"
                     ws.cell(row=capex_row, column=col_idx).number_format = "#,##0;(#,##0)"
 
         # Gross Profit, Organic EBITDA, Total EBITDA formulas
