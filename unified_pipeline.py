@@ -589,6 +589,8 @@ def step2_create_mid_product(
 
     # Anchor the template to the earliest data year and fill sequentially across projections
     data_years = sorted(df_pivot['year'].unique().tolist()) if not df_pivot.empty else []
+    actual_years = data_years[:3] if data_years else []
+    max_actual_year = actual_years[-1] if actual_years else None
     if data_years:
         base_year = data_years[0]
         # Fill all columns E-M with sequential years so projections align after actuals
@@ -685,7 +687,11 @@ def step2_create_mid_product(
             cell = ws.cell(row=row_idx, column=col_idx)
             cell.value = value
             cell.number_format = "#,##0;(#,##0)"
-            cell.font = Font(color="1F4E79")  # blue tone for actuals
+            # Use one blue tone for actuals only; projected stays black
+            if max_actual_year and year <= max_actual_year:
+                cell.font = Font(color="1F4E79")
+            else:
+                cell.font = Font(color="000000")
 
     # Inject formulas for Gross Profit, Organic EBITDA, Total EBITDA across all columns
     gp_row = template_rows.get("Gross Profit")
@@ -1018,6 +1024,20 @@ def _apply_projection_formulas(final_path: Path) -> None:
     def _coord(r, c):
         return f"{get_column_letter(c)}{r}"
 
+    # Force assumptions block to absolute values
+    for key, cell_ref in ASSUMP.items():
+        try:
+            acell = ws[cell_ref]
+            if isinstance(acell.value, (int, float)):
+                acell.value = abs(acell.value)
+            else:
+                acell.value = f"=ABS({cell_ref})"
+        except Exception:
+            continue
+
+    # Adjust column P width for assumption labels
+    ws.column_dimensions['P'].width = 16
+
     actual_years = sorted([y for y in year_map.keys()])[:3]  # assume first 3 as actuals
     max_actual_year = max(actual_years) if actual_years else None
 
@@ -1051,6 +1071,13 @@ def _apply_projection_formulas(final_path: Path) -> None:
         if organic_row and other_row and total_row:
             ws.cell(row=total_row, column=col_idx).value = f"={_coord(organic_row,col_idx)}+{_coord(other_row,col_idx)}"
             ws.cell(row=total_row, column=col_idx).number_format = "#,##0;(#,##0)"
+        # Keep GP/Organic/Total fonts black
+        if gp_row:
+            ws.cell(row=gp_row, column=col_idx).font = Font(name="Arial", size=12, color="000000")
+        if organic_row:
+            ws.cell(row=organic_row, column=col_idx).font = Font(name="Arial", size=12, color="000000")
+        if total_row:
+            ws.cell(row=total_row, column=col_idx).font = Font(name="Arial", size=12, color="000000")
 
         # Growth row projected: link to assumption
         if rev_growth_row and max_actual_year and year > max_actual_year:
@@ -1099,11 +1126,12 @@ def _apply_projection_formulas(final_path: Path) -> None:
         # Margins: GP and Total EBITDA
         if gp_margin_row and rev_row and gp_row:
             cell = ws.cell(row=gp_margin_row, column=col_idx)
-            cell.value = f"=ABS({_coord(rev_row,col_idx)}+{_coord(cogs_row,col_idx)})/{_coord(rev_row,col_idx)}" if cogs_row else ""
+            if cogs_row:
+                cell.value = f"=ABS({_coord(rev_row,col_idx)}+{_coord(cogs_row,col_idx)})/ABS({_coord(rev_row,col_idx)})"
             cell.number_format = "0%;(0%)"
         if total_margin_row and rev_row and total_row:
             cell = ws.cell(row=total_margin_row, column=col_idx)
-            cell.value = f"=ABS({_coord(total_row,col_idx)}/{_coord(rev_row,col_idx)})"
+            cell.value = f"=ABS({_coord(total_row,col_idx)})/ABS({_coord(rev_row,col_idx)})"
             cell.number_format = "0%;(0%)"
 
     wb.save(final_path)
