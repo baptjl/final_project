@@ -751,7 +751,7 @@ def step2_create_mid_product(
             ws.cell(row=gp_row, column=col_idx).number_format = "#,##0;(#,##0)"
         if gp_row and sgna_row and rnd_row and organic_row:
             ws.cell(row=organic_row, column=col_idx).value = (
-                f"={_coord(gp_row,col_idx)}-{_coord(sgna_row,col_idx)}-{_coord(rnd_row,col_idx)}"
+                f"={_coord(gp_row,col_idx)}+{_coord(sgna_row,col_idx)}+{_coord(rnd_row,col_idx)}"
             )
             ws.cell(row=organic_row, column=col_idx).number_format = "#,##0;(#,##0)"
         if organic_row and other_row and total_row:
@@ -1024,7 +1024,7 @@ def _apply_projection_formulas(final_path: Path) -> None:
     def _coord(r, c):
         return f"{get_column_letter(c)}{r}"
 
-    # Force assumptions block to absolute values
+    # Force assumptions block to absolute values and percent format
     for key, cell_ref in ASSUMP.items():
         try:
             acell = ws[cell_ref]
@@ -1032,6 +1032,7 @@ def _apply_projection_formulas(final_path: Path) -> None:
                 acell.value = abs(acell.value)
             else:
                 acell.value = f"=ABS({cell_ref})"
+            acell.number_format = "0.0%;(0.0%)"
         except Exception:
             continue
 
@@ -1059,13 +1060,13 @@ def _apply_projection_formulas(final_path: Path) -> None:
                 if capex_row:
                     ws.cell(row=capex_row, column=col_idx).value = f"={_coord(capex_row, prior_col)}*(1+{ASSUMP['capex']})"
 
-        # GP / EBITDA formulas all years
+    # GP / EBITDA formulas all years
         if rev_row and cogs_row and gp_row:
             ws.cell(row=gp_row, column=col_idx).value = f"={_coord(rev_row,col_idx)}+{_coord(cogs_row,col_idx)}"
             ws.cell(row=gp_row, column=col_idx).number_format = "#,##0;(#,##0)"
         if gp_row and sgna_row and rnd_row and organic_row:
             ws.cell(row=organic_row, column=col_idx).value = (
-                f"={_coord(gp_row,col_idx)}-{_coord(sgna_row,col_idx)}-{_coord(rnd_row,col_idx)}"
+                f"={_coord(gp_row,col_idx)}+{_coord(sgna_row,col_idx)}+{_coord(rnd_row,col_idx)}"
             )
             ws.cell(row=organic_row, column=col_idx).number_format = "#,##0;(#,##0)"
         if organic_row and other_row and total_row:
@@ -1078,6 +1079,9 @@ def _apply_projection_formulas(final_path: Path) -> None:
             ws.cell(row=organic_row, column=col_idx).font = Font(name="Arial", size=12, color="000000")
         if total_row:
             ws.cell(row=total_row, column=col_idx).font = Font(name="Arial", size=12, color="000000")
+        # Ensure COGS projected format with parentheses
+        if cogs_row:
+            ws.cell(row=cogs_row, column=col_idx).number_format = "#,##0;(#,##0)"
 
         # Growth row projected: link to assumption
         if rev_growth_row and max_actual_year and year > max_actual_year:
