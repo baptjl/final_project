@@ -174,6 +174,7 @@ def _map_and_save(
         return None
 
     hint = t["scale_hint"].iloc[0] if "scale_hint" in t.columns and len(t) else "units"
+    sample_max = 0
     if len(t):
         try:
             sample_vals = (
@@ -183,6 +184,11 @@ def _map_and_save(
             sample_vals = []
     else:
         sample_vals = []
+    if sample_vals:
+        sample_max = max(abs(x) for x in sample_vals if x is not None)
+    # If hint says thousands but magnitudes are very large, override to millions
+    if hint == "thousands" and sample_max >= 1e6:
+        hint = "units"
     inferred = infer_scale(hdr_blob[:400], sample_vals) if hint == "units" else hint
     factor = SCALE_FACTORS.get(inferred, 1.0)
     t["value"] = t["value"] * factor
@@ -636,8 +642,8 @@ def step2_create_mid_product(
             units = meta.get("units", units)
         except Exception:
             pass
-    # Write units note in a safe, unused cell to preserve P&L header (e.g., B2)
-    ws.cell(row=2, column=2, value=f"Units: {units}")
+    # Write units note in a safe, unused cell to preserve P&L header (e.g., C3)
+    ws.cell(row=3, column=3, value=f"Units: {units}")
 
     # Find template row indices
     template_rows = {}
