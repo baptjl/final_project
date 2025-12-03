@@ -192,22 +192,31 @@ def _llm_detect_unit(raw_html: str) -> Optional[str]:
     return None
 
 
-def _extract_outlook_snippet(raw_html: str, max_len: int = 8000) -> str:
+def _extract_outlook_snippet(raw_html: str, max_len: int = 8000, window: int = 800) -> str:
     """
-    Grab a lightweight snippet likely to contain outlook/forward-looking commentary.
-    This is intentionally simple to avoid new dependencies.
+    Grab lightweight snippets likely to contain outlook/forward-looking commentary.
+    Collect up to a few windows around relevant keywords to improve discrimination.
     """
     lowered = raw_html.lower()
-    keywords = ["outlook", "guidance", "future", "trend", "expect", "forecast", "md&a", "discussion", "prospect"]
-    best_start = 0
+    keywords = ["outlook", "guidance", "future", "trend", "expect", "forecast", "md&a", "discussion", "prospect", "strategy", "growth"]
+    hits = []
     for kw in keywords:
         idx = lowered.find(kw)
         if idx != -1:
-            best_start = idx
+            hits.append(idx)
+        if len(hits) >= 3:
             break
-    start = max(0, best_start - 1000)
-    end = min(len(raw_html), start + max_len)
-    return raw_html[start:end]
+    if not hits:
+        return raw_html[:max_len]
+    parts = []
+    for idx in hits[:3]:
+        start = max(0, idx - window)
+        end = min(len(raw_html), idx + window)
+        parts.append(raw_html[start:end])
+        if sum(len(p) for p in parts) >= max_len:
+            break
+    snippet = "\n...\n".join(parts)
+    return snippet[:max_len]
 
 
 def _llm_sentiment_score(raw_html: str) -> Optional[dict]:
@@ -217,8 +226,9 @@ def _llm_sentiment_score(raw_html: str) -> Optional[dict]:
     snippet = _extract_outlook_snippet(raw_html)
     prompt = (
         "Read the following 10-K HTML snippet and assess management/market optimism about the company's future. "
-        "Return ONLY JSON like {\"score\": <number between -1 and 1>, \"evidence\": \"short quote\"}. "
-        "Positive score = optimistic, negative = pessimistic. Keep evidence short (<=200 chars)."
+        "Score: -1 (very pessimistic) to +1 (very optimistic), use tone AND any explicit guidance on growth/demand. "
+        "Return ONLY JSON like {\"score\": <number>, \"evidence\": \"short forward-looking quote\"}. "
+        "Pick the single best forward-looking sentence/phrase (<=200 chars) that supports the score."
     )
     try:
         resp = _llm_chat(
@@ -237,7 +247,11 @@ def _llm_sentiment_score(raw_html: str) -> Optional[dict]:
                 txt = txt[len("json"):].strip()
         data = json.loads(txt)
         score = float(data.get("score", 0))
-        evidence = str(data.get("evidence", ""))[:200]
+        ev_val = data.get("evidence", "")
+        if isinstance(ev_val, list):
+            evidence = " ".join(str(x) for x in ev_val if x)[:200]
+        else:
+            evidence = str(ev_val)[:200]
         return {"score": max(min(score, 1.0), -1.0), "evidence": evidence}
     except Exception as e:
         print(f"[WARN] LLM sentiment failed: {e}")
