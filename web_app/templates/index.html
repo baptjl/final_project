@@ -284,8 +284,9 @@
       ];
       const factCard = document.createElement('div');
       factCard.style.position = 'fixed';
-      factCard.style.right = '20px';
-      factCard.style.bottom = '20px';
+      factCard.style.left = '50%';
+      factCard.style.bottom = '24px';
+      factCard.style.transform = 'translateX(-50%)';
       factCard.style.padding = '12px 14px';
       factCard.style.borderRadius = '12px';
       factCard.style.background = 'rgba(20, 27, 47, 0.9)';
@@ -296,8 +297,19 @@
       factCard.style.maxWidth = '260px';
       factCard.style.lineHeight = '1.4';
       factCard.style.cursor = 'default';
+      factCard.style.transition = 'transform 0.4s ease, box-shadow 0.2s ease';
+      factCard.style.transformStyle = 'preserve-3d';
       factCard.innerText = funFacts[0];
       document.body.appendChild(factCard);
+
+      factCard.addEventListener('mouseenter', () => {
+        factCard.style.transform = 'translateX(-50%) rotateY(10deg)';
+        factCard.style.boxShadow = '0 14px 32px rgba(0,0,0,0.45)';
+      });
+      factCard.addEventListener('mouseleave', () => {
+        factCard.style.transform = 'translateX(-50%)';
+        factCard.style.boxShadow = '0 12px 30px rgba(0,0,0,0.35)';
+      });
 
       let idx = 1;
       setInterval(() => {
