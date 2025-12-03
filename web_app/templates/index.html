@@ -252,8 +252,6 @@
       const urlInput = document.getElementById('urlInput');
       const form = document.getElementById('mainForm');
       const submitBtn = form.querySelector('button[type="submit"]');
-      const card = document.querySelector('.card');
-      const wrap = document.querySelector('.wrap');
 
       drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.style.background = 'rgba(125, 211, 252, 0.08)'; });
       drop.addEventListener('dragleave', (e) => { drop.style.background = 'rgba(255,255,255,0.02)'; });
@@ -277,16 +275,35 @@
 
       urlInput.addEventListener('paste', (e)=>{ setTimeout(()=>{ urlInput.value = urlInput.value.trim(); }, 10); });
 
-      // Subtle parallax on mouse move
-      wrap.addEventListener('mousemove', (e) => {
-        const rect = wrap.getBoundingClientRect();
-        const x = (e.clientX - rect.left) / rect.width - 0.5;
-        const y = (e.clientY - rect.top) / rect.height - 0.5;
-        wrap.style.transform = `translate(${x * 6}px, ${y * 6}px)`;
-      });
-      wrap.addEventListener('mouseleave', () => {
-        wrap.style.transform = 'translate(0,0)';
-      });
+      // Fun fact scorecards
+      const funFacts = [
+        "We auto-detect units and years from the filing so you don't have to.",
+        "Sentiment scoring can gently nudge revenue growth based on outlook tone.",
+        "Projected years link to assumptions, so tweaking a rate flows through.",
+        "We color only actuals in blue; projections stay editable and black.",
+      ];
+      const factCard = document.createElement('div');
+      factCard.style.position = 'fixed';
+      factCard.style.right = '20px';
+      factCard.style.bottom = '20px';
+      factCard.style.padding = '12px 14px';
+      factCard.style.borderRadius = '12px';
+      factCard.style.background = 'rgba(20, 27, 47, 0.9)';
+      factCard.style.border = '1px solid rgba(255,255,255,0.08)';
+      factCard.style.color = '#e8ecf5';
+      factCard.style.fontSize = '14px';
+      factCard.style.boxShadow = '0 12px 30px rgba(0,0,0,0.35)';
+      factCard.style.maxWidth = '260px';
+      factCard.style.lineHeight = '1.4';
+      factCard.style.cursor = 'default';
+      factCard.innerText = funFacts[0];
+      document.body.appendChild(factCard);
+
+      let idx = 1;
+      setInterval(() => {
+        factCard.innerText = funFacts[idx % funFacts.length];
+        idx += 1;
+      }, 5000);
 
       // Intercept form submit and do AJAX POST to receive the generated Excel as a file
       form.addEventListener('submit', async (e) => {
