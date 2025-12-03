@@ -5,15 +5,15 @@
   <title>Generate Financial Model</title>
   <style>
     :root {
-      --bg: linear-gradient(135deg, #101728 0%, #141b2f 40%, #0f172a 100%);
-      --card: rgba(255,255,255,0.04);
-      --panel: rgba(255,255,255,0.06);
-      --border: rgba(255,255,255,0.08);
-      --accent: #7dd3fc;
-      --accent-2: #38bdf8;
-      --text: #e8ecf5;
-      --muted: #9ca3af;
-      --shadow: 0 16px 50px rgba(0,0,0,0.35);
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --panel: #f9fbff;
+      --border: #e4e8ef;
+      --accent: #2f7bff;
+      --accent-2: #174ddb;
+      --text: #1d2a3a;
+      --muted: #6c778a;
+      --shadow: 0 16px 40px rgba(17, 38, 90, 0.08);
       --radius: 14px;
     }
     * { box-sizing: border-box; }
@@ -30,25 +30,29 @@
     }
     .wrap {
       width: 100%;
-      max-width: 1100px;
-      position: relative;
-      isolation: isolate;
+      max-width: 1040px;
     }
-    .orb {
-      position: absolute;
-      border-radius: 999px;
-      filter: blur(80px);
-      opacity: 0.35;
-      z-index: -1;
-    }
-    .orb.one { width: 320px; height: 320px; background: #38bdf8; top: -60px; left: -80px; }
-    .orb.two { width: 260px; height: 260px; background: #8b5cf6; bottom: -40px; right: -40px; }
     header {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 18px;
+      background: linear-gradient(135deg, #f9fbff 0%, #eef3ff 100%);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 22px 24px;
+      box-shadow: var(--shadow);
       margin-bottom: 18px;
+      display: flex;
       align-items: center;
+      gap: 16px;
+    }
+    .icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #2f7bff 0%, #5ea5ff 100%);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-size: 26px;
+      box-shadow: 0 12px 30px rgba(47, 123, 255, 0.3);
     }
     h1 {
       margin: 0;
@@ -62,37 +66,41 @@
       font-size: 15px;
       line-height: 1.5;
     }
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: rgba(125, 211, 252, 0.08);
-      color: var(--accent);
-      font-weight: 700;
-      letter-spacing: 0.01em;
-      border: 1px solid rgba(125, 211, 252, 0.25);
-      width: fit-content;
-    }
     .card {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 22px 24px;
       box-shadow: var(--shadow);
-      backdrop-filter: blur(8px);
     }
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      grid-template-columns: 2fr 1fr;
       gap: 18px;
       align-items: start;
+    }
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    .section {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+      background: var(--panel);
+      margin-top: 12px;
+    }
+    .section h3 {
+      margin: 0 0 6px;
+      font-size: 15px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      font-weight: 700;
     }
     label {
       display: block;
       font-weight: 700;
-      margin: 12px 0 6px;
+      margin: 10px 0 6px;
       letter-spacing: -0.01em;
     }
     .hint { color: var(--muted); font-size: 13px; margin-top: 2px; }
@@ -102,22 +110,42 @@
       border: 1px solid var(--border);
       border-radius: 10px;
       font-size: 15px;
-      background: var(--panel);
+      background: #fff;
       color: var(--text);
       transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.05s ease;
     }
     .input:focus, input[type="text"]:focus, input[type="file"]:focus {
       outline: none;
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+      box-shadow: 0 0 0 3px rgba(47, 123, 255, 0.15);
       transform: translateY(-1px);
     }
     #dropZone {
-      border: 1px dashed var(--border);
+      border: 2px dashed var(--border);
       padding: 14px;
       border-radius: 12px;
-      background: rgba(255,255,255,0.02);
+      background: #fbfdff;
       transition: background 0.2s ease, border-color 0.2s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    #dropZone.dragover {
+      border-color: var(--accent);
+      background: rgba(47, 123, 255, 0.06);
+      animation: dash 1s linear infinite;
+    }
+    @keyframes dash {
+      to { border-color: var(--accent); }
+    }
+    .drop-inner {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 12px;
+      align-items: center;
+    }
+    .drop-icon {
+      font-size: 26px;
+      color: var(--accent);
     }
     .actions {
       margin-top: 18px;
@@ -128,18 +156,33 @@
     }
     button {
       background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
-      color: #0b1220;
-      padding: 11px 18px;
+      color: #fff;
+      padding: 12px 18px;
       border: none;
       border-radius: 12px;
       font-weight: 800;
       letter-spacing: 0.01em;
       cursor: pointer;
-      box-shadow: 0 8px 20px rgba(56, 189, 248, 0.35);
+      box-shadow: 0 12px 24px rgba(47, 123, 255, 0.25);
       transition: transform 0.1s ease, box-shadow 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
     }
-    button:hover { box-shadow: 0 10px 24px rgba(56, 189, 248, 0.45); }
+    button:hover { box-shadow: 0 14px 26px rgba(47, 123, 255, 0.3); }
     button:active { transform: translateY(1px); }
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: #fff;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+    button.loading .spinner { display: inline-block; }
+    button.loading .btn-text { opacity: 0.7; }
+    @keyframes spin { to { transform: rotate(360deg); } }
     .checkbox {
       display: flex;
       align-items: center;
@@ -148,23 +191,7 @@
       margin-top: 10px;
       color: var(--text);
     }
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: var(--panel);
-      font-size: 12px;
-      color: var(--muted);
-      letter-spacing: 0.01em;
-    }
-    .footer {
-      margin-top: 14px;
-      color: var(--muted);
-      font-size: 13px;
-    }
+    .checkbox input { width: auto; }
     .list {
       display: grid;
       gap: 10px;
@@ -187,58 +214,101 @@
       flex-shrink: 0;
       margin-top: 6px;
     }
+    .toast {
+      position: fixed;
+      left: 50%;
+      top: 20px;
+      transform: translateX(-50%);
+      padding: 12px 16px;
+      border-radius: 12px;
+      color: #0f2a0f;
+      background: #d3f9d8;
+      border: 1px solid #9ae6b4;
+      box-shadow: var(--shadow);
+      font-weight: 600;
+      display: none;
+      z-index: 20;
+    }
+    .toast.error {
+      background: #ffe3e3;
+      border-color: #ffa8a8;
+      color: #5f0f17;
+    }
+    .banner {
+      display: none;
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #ffe3e3;
+      color: #5f0f17;
+      border: 1px solid #ffa8a8;
+      font-weight: 600;
+    }
+    .footer {
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
+  <div class="toast" id="toast"></div>
   <div class="wrap">
-    <div class="orb one"></div>
-    <div class="orb two"></div>
-
     <header>
+      <div class="icon">📊</div>
       <div>
-        <div class="badge">AI‑assisted P&L extraction</div>
         <h1>Generate Final Excel from 10‑K</h1>
-        <p class="subtitle">Upload a filing or paste a URL. We extract, map, and build projections automatically — with optional LLM help.</p>
+        <p class="subtitle">Transform any 10‑K into a clean Excel model in one click.</p>
       </div>
-      <div class="pill">LLM mapping · Sentiment-based growth · Local processing</div>
     </header>
 
-    <div class="grid">
-      <div class="card">
-        <form method="post" enctype="multipart/form-data" id="mainForm">
-          <label for="urlInput">URL (preferred)</label>
+    <div class="card">
+      <div class="banner" id="errorBanner"></div>
+      <form method="post" enctype="multipart/form-data" id="mainForm">
+
+        <div class="section">
+          <h3>Step 1 · Provide URL or Upload HTML</h3>
           <div id="dropZone">
-            <input class="input" type="text" name="url" id="urlInput" autocomplete="url" placeholder="https://example.com/filing.html" />
-            <div class="hint">Drag & drop a link here, or paste a URL. If both URL and file are provided, the URL wins.</div>
+            <div class="drop-inner">
+              <div class="drop-icon">⬆️</div>
+              <div>
+                <label for="urlInput" style="margin:0;">URL (preferred)</label>
+                <input class="input" type="text" name="url" id="urlInput" autocomplete="url" placeholder="https://example.com/filing.html" />
+                <div class="hint" id="dropText">Drag & drop a link here, or paste a URL. If both URL and file are provided, the URL wins.</div>
+              </div>
+            </div>
           </div>
-
-          <label for="fileInput">Or upload HTML file (.html / .htm)</label>
+          <label for="fileInput" style="margin-top:12px;">Or upload HTML file (.html / .htm)</label>
           <input class="input" type="file" id="fileInput" name="file" accept=".html,.htm" />
+        </div>
 
+        <div class="section">
+          <h3>Step 2 · Company Name</h3>
           <label for="company">Company name</label>
           <input class="input" type="text" name="company" id="company" autocomplete="organization" placeholder="e.g. Apple Inc." required />
+        </div>
 
+        <div class="section">
+          <h3>Step 3 · Options</h3>
           <div class="checkbox">
             <input type="hidden" name="use_llm_flag" value="0" />
             <input type="checkbox" id="useLLM" name="use_llm_flag" value="1" {% if use_llm_default %}checked{% endif %} />
             <label for="useLLM" style="margin:0;">Use LLM label mapping (OpenAI)</label>
           </div>
+        </div>
 
+        <div class="section">
+          <h3>Step 4 · Generate</h3>
           <div class="actions">
-            <button type="submit">Generate</button>
+            <button type="submit" id="generateBtn">
+              <span class="spinner"></span>
+              <span class="btn-text">Generate</span>
+            </button>
           </div>
-        </form>
-      </div>
+        </div>
 
-      <div class="card">
-        <div class="pill">What happens</div>
-        <ul class="list">
-          <li><span class="dot"></span><span>We detect the P&L table and units, map line items, and fill the model.</span></li>
-          <li><span class="dot"></span><span>Optional AI: smarter label mapping plus an outlook score that can nudge revenue growth.</span></li>
-          <li><span class="dot"></span><span>Projected years auto-link to assumptions; download as ready-to-edit Excel.</span></li>
-          <li><span class="dot"></span><span>Processing runs on your service; no files are sent elsewhere beyond the configured LLM provider.</span></li>
-        </ul>
-      </div>
+      </form>
     </div>
 
     <div class="footer">
@@ -249,16 +319,48 @@
   <script>
     (function(){
       const drop = document.getElementById('dropZone');
+      const dropText = document.getElementById('dropText');
       const urlInput = document.getElementById('urlInput');
       const form = document.getElementById('mainForm');
-      const submitBtn = form.querySelector('button[type="submit"]');
+      const submitBtn = document.getElementById('generateBtn');
+      const spinner = submitBtn.querySelector('.spinner');
+      const toast = document.getElementById('toast');
+      const errorBanner = document.getElementById('errorBanner');
 
-      drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.style.background = 'rgba(125, 211, 252, 0.08)'; });
-      drop.addEventListener('dragleave', (e) => { drop.style.background = 'rgba(255,255,255,0.02)'; });
+      let toastTimeout;
+
+      function showToast(message, isError=false) {
+        toast.textContent = isError ? `⚠️ ${message}` : `✅ ${message}`;
+        toast.classList.toggle('error', isError);
+        toast.style.display = 'block';
+        clearTimeout(toastTimeout);
+        toastTimeout = setTimeout(() => { toast.style.display = 'none'; }, 4000);
+      }
+
+      function showError(message) {
+        errorBanner.textContent = message;
+        errorBanner.style.display = 'block';
+        showToast(message, true);
+      }
+
+      function clearError() {
+        errorBanner.style.display = 'none';
+      }
+
+      drop.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        drop.classList.add('dragover');
+        dropText.textContent = 'Drop the URL here…';
+      });
+      drop.addEventListener('dragleave', (e) => {
+        drop.classList.remove('dragover');
+        dropText.textContent = 'Drag & drop a link here, or paste a URL. If both URL and file are provided, the URL wins.';
+      });
 
       drop.addEventListener('drop', (e) => {
         e.preventDefault();
-        drop.style.background = 'rgba(255,255,255,0.02)';
+        drop.classList.remove('dragover');
+        dropText.textContent = 'Drag & drop a link here, or paste a URL. If both URL and file are provided, the URL wins.';
         const items = e.dataTransfer.items;
         if(items){
           for(let i=0;i<items.length;i++){
@@ -275,54 +377,12 @@
 
       urlInput.addEventListener('paste', (e)=>{ setTimeout(()=>{ urlInput.value = urlInput.value.trim(); }, 10); });
 
-      // Fun fact scorecards
-      const funFacts = [
-        "We auto-detect units and years from the filing so you don't have to.",
-        "Sentiment scoring can gently nudge revenue growth based on outlook tone.",
-        "Projected years link to assumptions, so tweaking a rate flows through.",
-        "We color only actuals in blue; projections stay editable and black.",
-      ];
-      const factCard = document.createElement('div');
-      factCard.style.position = 'fixed';
-      factCard.style.left = '50%';
-      factCard.style.bottom = '24px';
-      factCard.style.transform = 'translateX(-50%)';
-      factCard.style.padding = '12px 14px';
-      factCard.style.borderRadius = '12px';
-      factCard.style.background = 'rgba(20, 27, 47, 0.9)';
-      factCard.style.border = '1px solid rgba(255,255,255,0.08)';
-      factCard.style.color = '#e8ecf5';
-      factCard.style.fontSize = '14px';
-      factCard.style.boxShadow = '0 12px 30px rgba(0,0,0,0.35)';
-      factCard.style.maxWidth = '260px';
-      factCard.style.lineHeight = '1.4';
-      factCard.style.cursor = 'default';
-      factCard.style.transition = 'transform 0.4s ease, box-shadow 0.2s ease';
-      factCard.style.transformStyle = 'preserve-3d';
-      factCard.innerText = funFacts[0];
-      document.body.appendChild(factCard);
-
-      factCard.addEventListener('mouseenter', () => {
-        factCard.style.transform = 'translateX(-50%) rotateY(10deg)';
-        factCard.style.boxShadow = '0 14px 32px rgba(0,0,0,0.45)';
-      });
-      factCard.addEventListener('mouseleave', () => {
-        factCard.style.transform = 'translateX(-50%)';
-        factCard.style.boxShadow = '0 12px 30px rgba(0,0,0,0.35)';
-      });
-
-      let idx = 1;
-      setInterval(() => {
-        factCard.innerText = funFacts[idx % funFacts.length];
-        idx += 1;
-      }, 5000);
-
       // Intercept form submit and do AJAX POST to receive the generated Excel as a file
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
+        clearError();
+        submitBtn.classList.add('loading');
         submitBtn.disabled = true;
-        const originalText = submitBtn.textContent;
-        submitBtn.textContent = 'Generating...';
 
         const fd = new FormData(form);
         fd.append('ajax', '1');
@@ -331,7 +391,7 @@
           const resp = await fetch(form.action || '/', { method: 'POST', body: fd, credentials: 'same-origin' });
           if (!resp.ok) {
             const text = await resp.text();
-            alert('Server error during generation. See console for details.');
+            showError('Server error during generation. See console for details.');
             console.error('Server error response:', text);
             window.location.reload();
             return;
@@ -351,13 +411,14 @@
           a.click();
           a.remove();
           window.URL.revokeObjectURL(url);
+          showToast('Success ✓ Excel downloaded');
 
         } catch (err) {
           console.error(err);
-          alert('Error generating file. See console for details.');
+          showError('Error generating file. See console for details.');
         } finally {
+          submitBtn.classList.remove('loading');
           submitBtn.disabled = false;
-          submitBtn.textContent = originalText;
         }
       });
     })();
