@@ -103,10 +103,10 @@
 <body>
   <nav class="nav">
     <div class="nav-inner">
-      <div class="brand">
+      <a class="brand" href="{{ url_for('home') }}">
         <div class="brand-logo">📊</div>
         <span>10-K AutoModel</span>
-      </div>
+      </a>
       <div class="nav-links">
         <a href="{{ url_for('home') }}" class="{% if request.path == '/' %}active{% endif %}">Home</a>
         <a href="{{ url_for('app_page') }}" class="{% if request.path.startswith('/app') %}active{% endif %}">App</a>

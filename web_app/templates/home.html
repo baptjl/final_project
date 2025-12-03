@@ -2,25 +2,26 @@
 {% block title %}Home · 10-K AutoModel{% endblock %}
 {% block extra_head %}
 <style>
-  .stack { display: grid; gap: 18px; max-width: 900px; margin: 0 auto; }
+  .stack { display: grid; gap: 18px; max-width: 900px; margin: 0 auto; padding: 0 4px; }
   .hero {
     background: linear-gradient(135deg, rgba(255,255,255,0.82), rgba(248,250,255,0.96));
     border: 1px solid var(--border);
     border-radius: 18px;
-    padding: 26px;
+    padding: 26px 24px;
     box-shadow: var(--shadow);
     display: grid;
     gap: 14px;
   }
   .hero h1 { margin: 0; font-size: 34px; letter-spacing: -0.02em; }
   .hero p { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.6; }
-  .cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
   .cta a.btn {
     background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
     color: #fff; padding: 12px 16px; border-radius: 12px; font-weight: 800;
     text-decoration: none; box-shadow: 0 14px 28px rgba(95,90,246,0.24);
   }
-  .cta a.link { color: var(--accent); font-weight: 700; text-decoration: none; }
+  .cta a.link { color: var(--accent); font-weight: 700; text-decoration: none; padding: 10px 12px; border-radius: 10px; }
+  .cta a.link:hover { text-decoration: underline; color: var(--accent-2); }
   .cards {
     display: grid;
     gap: 16px;
@@ -37,36 +38,10 @@
   .item strong { font-size: 16px; }
   .item p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
 
-  /* Fun fact flip card */
-  .funfact-wrapper { perspective: 1200px; margin-top: 10px; }
-  .funfact-card {
-    position: relative;
-    width: 100%;
-    min-height: 140px;
-    border-radius: 14px;
-    border: 1px solid var(--border);
-    box-shadow: 0 12px 30px rgba(17,24,39,0.12);
-    transform-style: preserve-3d;
-    transition: transform 0.4s ease;
-    background: var(--card);
-    cursor: pointer;
-  }
-  .funfact-card.flip { transform: rotateY(180deg); }
-  .funface {
-    position: absolute;
-    inset: 0;
-    backface-visibility: hidden;
-    border-radius: 14px;
-    padding: 16px;
-    display: grid;
-    gap: 8px;
-  }
-  .funface.back { transform: rotateY(180deg); }
-  .funface h4 { margin: 0; font-size: 15px; letter-spacing: 0.02em; color: var(--accent-2); }
-  .funface p { margin: 0; color: var(--muted); line-height: 1.5; }
   @media (max-width: 720px) {
     .hero h1 { font-size: 28px; }
-    .stack { padding: 0 4px; }
+    .stack { padding: 0; }
+    .cta { align-items: flex-start; }
   }
 </style>
 {% endblock %}
@@ -115,48 +90,6 @@
         </div>
       </div>
 
-      <div class="cardy funfact-wrapper">
-        <div class="funfact-card" id="funCard" tabindex="0" aria-label="Finance fun fact card">
-          <div class="funface front">
-            <h4>Finance fun fact</h4>
-            <p>Hover or tap to flip and learn something new.</p>
-          </div>
-          <div class="funface back" aria-live="polite">
-            <h4>Fun fact</h4>
-            <p id="funFactText">Financial facts will appear here.</p>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
-  <script>
-    (() => {
-      const card = document.getElementById('funCard');
-      const factText = document.getElementById('funFactText');
-      const facts = [
-        "Gross margin equals gross profit divided by revenue; small shifts matter a lot.",
-        "Free cash flow often tracks EBITDA but capital intensity can widen the gap.",
-        "High deferred revenue can boost near-term cash even when net income is flat.",
-        "Operating leverage means revenue can grow faster than opex after a point.",
-        "Working capital swings (AR/AP/inventory) can overshadow earnings in cash flow.",
-        "Seasonality can distort year-over-year comps; trailing twelve months helps.",
-        "Capitalized R&D lowers current expenses but can reduce future flexibility.",
-        "Share-based compensation is non-cash but still dilutes equity holders."
-      ];
-      let idx = 0;
-      function flip() {
-        idx = (idx + 1) % facts.length;
-        factText.textContent = facts[idx];
-        card.classList.toggle('flip');
-      }
-      card.addEventListener('click', flip);
-      card.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); }
-      });
-      card.addEventListener('mouseenter', () => card.classList.add('hovering'));
-      card.addEventListener('mouseleave', () => card.classList.remove('hovering'));
-      // Initialize first fact
-      factText.textContent = facts[idx];
-    })();
-  </script>
 {% endblock %}
