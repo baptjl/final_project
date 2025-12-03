@@ -5,15 +5,16 @@
   <title>Generate Financial Model</title>
   <style>
     :root {
-      --bg: linear-gradient(135deg, #f6f8fc 0%, #eef2f7 100%);
-      --card: #ffffff;
-      --border: #dfe3eb;
-      --accent: #1f6feb;
-      --accent-2: #0f3d91;
-      --text: #1f2a44;
-      --muted: #6b7280;
-      --shadow: 0 10px 30px rgba(31, 47, 79, 0.08);
-      --radius: 12px;
+      --bg: linear-gradient(135deg, #101728 0%, #141b2f 40%, #0f172a 100%);
+      --card: rgba(255,255,255,0.04);
+      --panel: rgba(255,255,255,0.06);
+      --border: rgba(255,255,255,0.08);
+      --accent: #7dd3fc;
+      --accent-2: #38bdf8;
+      --text: #e8ecf5;
+      --muted: #9ca3af;
+      --shadow: 0 16px 50px rgba(0,0,0,0.35);
+      --radius: 14px;
     }
     * { box-sizing: border-box; }
     body {
@@ -25,78 +26,119 @@
       display: flex;
       align-items: flex-start;
       justify-content: center;
-      padding: 40px 16px;
+      padding: 48px 16px;
     }
     .wrap {
       width: 100%;
-      max-width: 880px;
+      max-width: 1100px;
+      position: relative;
+      isolation: isolate;
     }
+    .orb {
+      position: absolute;
+      border-radius: 999px;
+      filter: blur(80px);
+      opacity: 0.35;
+      z-index: -1;
+    }
+    .orb.one { width: 320px; height: 320px; background: #38bdf8; top: -60px; left: -80px; }
+    .orb.two { width: 260px; height: 260px; background: #8b5cf6; bottom: -40px; right: -40px; }
     header {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 18px;
       margin-bottom: 18px;
+      align-items: center;
     }
     h1 {
-      margin: 0 0 6px;
-      font-size: 28px;
-      font-weight: 700;
+      margin: 0;
+      font-size: 30px;
+      font-weight: 800;
       letter-spacing: -0.02em;
     }
     .subtitle {
-      margin: 0;
+      margin: 6px 0 0;
       color: var(--muted);
       font-size: 15px;
+      line-height: 1.5;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(125, 211, 252, 0.08);
+      color: var(--accent);
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      border: 1px solid rgba(125, 211, 252, 0.25);
+      width: fit-content;
     }
     .card {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 20px 22px;
+      padding: 22px 24px;
       box-shadow: var(--shadow);
+      backdrop-filter: blur(8px);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 18px;
+      align-items: start;
     }
     label {
       display: block;
-      font-weight: 600;
+      font-weight: 700;
       margin: 12px 0 6px;
+      letter-spacing: -0.01em;
     }
     .hint { color: var(--muted); font-size: 13px; margin-top: 2px; }
     .input, input[type="text"], input[type="file"] {
       width: 100%;
-      padding: 10px 12px;
+      padding: 11px 13px;
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 10px;
       font-size: 15px;
-      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      background: var(--panel);
+      color: var(--text);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.05s ease;
     }
     .input:focus, input[type="text"]:focus, input[type="file"]:focus {
       outline: none;
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.12);
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+      transform: translateY(-1px);
     }
     #dropZone {
       border: 1px dashed var(--border);
       padding: 14px;
-      border-radius: 10px;
-      background: #fbfcff;
-      transition: background 0.2s ease;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.02);
+      transition: background 0.2s ease, border-color 0.2s ease;
     }
     .actions {
-      margin-top: 16px;
+      margin-top: 18px;
       display: flex;
       align-items: center;
       gap: 12px;
       flex-wrap: wrap;
     }
     button {
-      background: var(--accent);
-      color: white;
-      padding: 10px 16px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+      color: #0b1220;
+      padding: 11px 18px;
       border: none;
-      border-radius: 10px;
-      font-weight: 700;
+      border-radius: 12px;
+      font-weight: 800;
+      letter-spacing: 0.01em;
       cursor: pointer;
-      box-shadow: 0 6px 18px rgba(31, 111, 235, 0.25);
-      transition: background 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
+      box-shadow: 0 8px 20px rgba(56, 189, 248, 0.35);
+      transition: transform 0.1s ease, box-shadow 0.2s ease;
     }
-    button:hover { background: var(--accent-2); box-shadow: 0 8px 20px rgba(31, 111, 235, 0.35); }
+    button:hover { box-shadow: 0 10px 24px rgba(56, 189, 248, 0.45); }
     button:active { transform: translateY(1px); }
     .checkbox {
       display: flex;
@@ -104,45 +146,99 @@
       gap: 8px;
       font-weight: 600;
       margin-top: 10px;
+      color: var(--text);
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.01em;
     }
     .footer {
       margin-top: 14px;
       color: var(--muted);
       font-size: 13px;
     }
+    .list {
+      display: grid;
+      gap: 10px;
+      padding: 0;
+      margin: 12px 0 0;
+      list-style: none;
+    }
+    .list li {
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+      margin-top: 6px;
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
+    <div class="orb one"></div>
+    <div class="orb two"></div>
+
     <header>
-      <h1>Generate Final Excel from 10‑K</h1>
-      <p class="subtitle">Upload a filing or paste a URL. We’ll extract, map, and project automatically.</p>
+      <div>
+        <div class="badge">AI‑assisted P&L extraction</div>
+        <h1>Generate Final Excel from 10‑K</h1>
+        <p class="subtitle">Upload a filing or paste a URL. We extract, map, and build projections automatically — with optional LLM help.</p>
+      </div>
+      <div class="pill">LLM mapping · Sentiment-based growth · Local processing</div>
     </header>
 
-    <div class="card">
-      <form method="post" enctype="multipart/form-data" id="mainForm">
-        <label for="urlInput">URL (preferred)</label>
-        <div id="dropZone">
-          <input class="input" type="text" name="url" id="urlInput" autocomplete="url" placeholder="https://example.com/filing.html" />
-          <div class="hint">Drag & drop a link here, or paste a URL. If both URL and file are provided, the URL wins.</div>
-        </div>
+    <div class="grid">
+      <div class="card">
+        <form method="post" enctype="multipart/form-data" id="mainForm">
+          <label for="urlInput">URL (preferred)</label>
+          <div id="dropZone">
+            <input class="input" type="text" name="url" id="urlInput" autocomplete="url" placeholder="https://example.com/filing.html" />
+            <div class="hint">Drag & drop a link here, or paste a URL. If both URL and file are provided, the URL wins.</div>
+          </div>
 
-        <label for="fileInput">Or upload HTML file (.html / .htm)</label>
-        <input type="file" id="fileInput" name="file" accept=".html,.htm" />
+          <label for="fileInput">Or upload HTML file (.html / .htm)</label>
+          <input class="input" type="file" id="fileInput" name="file" accept=".html,.htm" />
 
-        <label for="company">Company name</label>
-        <input class="input" type="text" name="company" id="company" autocomplete="organization" placeholder="e.g. Apple Inc." required />
+          <label for="company">Company name</label>
+          <input class="input" type="text" name="company" id="company" autocomplete="organization" placeholder="e.g. Apple Inc." required />
 
-        <div class="checkbox">
-          <input type="hidden" name="use_llm_flag" value="0" />
-          <input type="checkbox" id="useLLM" name="use_llm_flag" value="1" {% if use_llm_default %}checked{% endif %} />
-          <label for="useLLM" style="margin:0;">Use LLM label mapping (OpenAI)</label>
-        </div>
+          <div class="checkbox">
+            <input type="hidden" name="use_llm_flag" value="0" />
+            <input type="checkbox" id="useLLM" name="use_llm_flag" value="1" {% if use_llm_default %}checked{% endif %} />
+            <label for="useLLM" style="margin:0;">Use LLM label mapping (OpenAI)</label>
+          </div>
 
-        <div class="actions">
-          <button type="submit">Generate</button>
-        </div>
-      </form>
+          <div class="actions">
+            <button type="submit">Generate</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="pill">What happens</div>
+        <ul class="list">
+          <li><span class="dot"></span><span>We detect the P&L table and units, map line items, and fill the model.</span></li>
+          <li><span class="dot"></span><span>Optional LLM label mapping and sentiment-adjusted growth (enable on Render via <code>USE_LLM_SENTIMENT=1</code>).</span></li>
+          <li><span class="dot"></span><span>Projected years auto-link to assumptions; download as ready-to-edit Excel.</span></li>
+          <li><span class="dot"></span><span>Processing runs on your service; no files are sent elsewhere beyond the configured LLM provider.</span></li>
+        </ul>
+      </div>
     </div>
 
     <div class="footer">
@@ -157,12 +253,12 @@
       const form = document.getElementById('mainForm');
       const submitBtn = form.querySelector('button[type="submit"]');
 
-      drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.style.background = '#f3f6ff'; });
-      drop.addEventListener('dragleave', (e) => { drop.style.background = '#fbfcff'; });
+      drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.style.background = 'rgba(125, 211, 252, 0.08)'; });
+      drop.addEventListener('dragleave', (e) => { drop.style.background = 'rgba(255,255,255,0.02)'; });
 
       drop.addEventListener('drop', (e) => {
         e.preventDefault();
-        drop.style.background = '#fbfcff';
+        drop.style.background = 'rgba(255,255,255,0.02)';
         const items = e.dataTransfer.items;
         if(items){
           for(let i=0;i<items.length;i++){
