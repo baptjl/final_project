@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Help · 10-K AutoModel{% endblock %}
+{% block extra_head %}
+<style>
+  .card {
+    background: rgba(255,255,255,0.92);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    box-shadow: var(--shadow);
+    margin-bottom: 16px;
+  }
+  h2 { margin: 0 0 10px; }
+  .faq { display: grid; gap: 12px; }
+  .faq-item { border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+  .faq-item:last-child { border-bottom: none; }
+  .faq-item strong { display: block; margin-bottom: 4px; }
+  .examples { list-style: disc; margin: 0 0 0 20px; padding: 0; }
+  .examples li { margin: 4px 0; }
+</style>
+{% endblock %}
+{% block content %}
+  <div class="card">
+    <h2>Help & Examples</h2>
+    <p class="subtitle">Answers to common questions and sample URLs to try.</p>
+  </div>
+
+  <div class="card">
+    <h3>Example 10‑K URLs</h3>
+    <ul class="examples">
+      <li><code>https://example.com/10k/apple-2025.html</code></li>
+      <li><code>https://example.com/10k/microsoft-2024.html</code></li>
+      <li><code>https://example.com/10k/steve-madden-2024.html</code></li>
+    </ul>
+    <p class="hint">Replace these with real 10‑K HTML links. PDFs are not supported.</p>
+  </div>
+
+  <div class="card faq">
+    <div class="faq-item">
+      <strong>What kind of URLs work best?</strong>
+      <span>Direct links to the 10‑K HTML filing. Avoid PDFs; the extractor needs HTML tables.</span>
+    </div>
+    <div class="faq-item">
+      <strong>Can I use this with PDFs?</strong>
+      <span>No—please provide the HTML version of the filing so tables can be parsed.</span>
+    </div>
+    <div class="faq-item">
+      <strong>What does the LLM option change?</strong>
+      <span>It can improve label mapping and lightly adjust revenue growth via sentiment from the filing’s outlook text. If unavailable, we fall back to the deterministic mapping.</span>
+    </div>
+    <div class="faq-item">
+      <strong>Where are my files processed?</strong>
+      <span>On this service. The server binds to 127.0.0.1:8501 by default (private); nothing is sent elsewhere beyond the configured LLM provider.</span>
+    </div>
+  </div>
+{% endblock %}

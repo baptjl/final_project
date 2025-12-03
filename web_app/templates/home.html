@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Home · 10-K AutoModel{% endblock %}
+{% block extra_head %}
+<style>
+  .hero {
+    background: linear-gradient(135deg, rgba(255,255,255,0.8), rgba(248,250,255,0.95));
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 28px;
+    box-shadow: var(--shadow);
+    display: grid;
+    gap: 14px;
+  }
+  .hero h1 { margin: 0; font-size: 34px; letter-spacing: -0.02em; }
+  .hero p { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.6; }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+  .cta a.btn {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    color: #fff; padding: 12px 16px; border-radius: 12px; font-weight: 800;
+    text-decoration: none; box-shadow: 0 14px 28px rgba(95,90,246,0.24);
+  }
+  .cta a.link { color: var(--accent); font-weight: 700; text-decoration: none; }
+  .steps, .why {
+    margin-top: 20px;
+    display: grid;
+    gap: 14px;
+  }
+  .steps .cardy, .why .cardy {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    box-shadow: 0 10px 26px rgba(17,24,39,0.08);
+  }
+  .steps h3, .why h3 { margin: 0 0 6px; letter-spacing: 0.04em; text-transform: uppercase; font-size: 13px; color: var(--muted); }
+  .steps .item, .why .item { display: grid; gap: 6px; }
+  .item strong { font-size: 16px; }
+  .item p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+  @media (max-width: 720px) {
+    .hero h1 { font-size: 28px; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+  <div class="hero">
+    <div class="pill">Beta</div>
+    <h1>Generate Final Excel from 10‑K</h1>
+    <p>Paste a 10‑K URL or upload HTML and get a clean Excel model in one click. Optional AI mapping and outlook sentiment to nudge growth.</p>
+    <div class="cta">
+      <a class="btn" href="{{ url_for('app_page') }}">Get started</a>
+      <a class="link" href="{{ url_for('help_page') }}">See examples</a>
+    </div>
+  </div>
+
+  <div class="steps">
+    <div class="cardy">
+      <h3>How it works</h3>
+      <div class="item">
+        <strong>Step 1 — Provide source</strong>
+        <p>Paste a 10‑K URL or upload the HTML file.</p>
+      </div>
+      <div class="item">
+        <strong>Step 2 — We extract & map</strong>
+        <p>Detect income statement, units, and map labels (with optional AI).</p>
+      </div>
+      <div class="item">
+        <strong>Step 3 — Download Excel</strong>
+        <p>Projections auto-link to assumptions; actuals stay clean and editable.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="why">
+    <div class="cardy">
+      <h3>Why this tool?</h3>
+      <div class="item">
+        <strong>Saves time</strong>
+        <p>Avoid manual copy/paste; get a model-ready workbook fast.</p>
+      </div>
+      <div class="item">
+        <strong>Consistent mapping</strong>
+        <p>Aligns to a standard COA, with optional AI label mapping.</p>
+      </div>
+      <div class="item">
+        <strong>Private by default</strong>
+        <p>Runs on your service; files are not sent elsewhere beyond the configured LLM provider.</p>
+      </div>
+    </div>
+  </div>
+{% endblock %}

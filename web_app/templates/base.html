@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}10-K AutoModel{% endblock %}</title>
+  <style>
+    :root {
+      --bg: radial-gradient(circle at 20% 20%, #f4f7ff 0%, #eef2fb 35%, #e7edf9 65%, #edf1fb 100%);
+      --card: rgba(255,255,255,0.9);
+      --border: #dfe5f2;
+      --accent: #5f5af6;
+      --accent-2: #3a35d3;
+      --text: #111827;
+      --muted: #6b7280;
+      --shadow: 0 16px 46px rgba(17, 24, 39, 0.14);
+      --radius: 16px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(10px);
+      background: rgba(255,255,255,0.75);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-inner {
+      max-width: 1160px;
+      margin: 0 auto;
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 18px;
+      color: var(--text);
+    }
+    .brand-logo {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      background: radial-gradient(circle at 30% 30%, #a5b4fc, #5f5af6 60%, #3a35d3);
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-size: 18px;
+      box-shadow: 0 10px 24px rgba(95,90,246,0.32);
+    }
+    .nav-links {
+      display: flex;
+      gap: 14px;
+      margin-left: auto;
+      flex-wrap: wrap;
+    }
+    .nav-links a {
+      padding: 8px 10px;
+      border-radius: 10px;
+      font-weight: 600;
+      color: var(--text);
+      text-decoration: none;
+      transition: background 0.2s ease;
+    }
+    .nav-links a:hover,
+    .nav-links a.active {
+      background: rgba(95,90,246,0.12);
+      color: var(--accent-2);
+    }
+    main {
+      flex: 1;
+      width: 100%;
+      max-width: 1160px;
+      padding: 32px 18px 40px;
+      margin: 0 auto;
+    }
+    .footer {
+      text-align: center;
+      padding: 16px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+  </style>
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <div class="brand">
+        <div class="brand-logo">📊</div>
+        <span>10-K AutoModel</span>
+      </div>
+      <div class="nav-links">
+        <a href="{{ url_for('home') }}" class="{% if request.path == '/' %}active{% endif %}">Home</a>
+        <a href="{{ url_for('app_page') }}" class="{% if request.path.startswith('/app') %}active{% endif %}">App</a>
+        <a href="{{ url_for('help_page') }}" class="{% if request.path.startswith('/help') %}active{% endif %}">Help</a>
+        <a href="{{ url_for('settings_page') }}" class="{% if request.path.startswith('/settings') %}active{% endif %}">Settings</a>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <div class="footer">
+    Files are processed locally on this service. The server binds to 127.0.0.1:8501 by default (private).
+  </div>
+</body>
+</html>

@@ -65,116 +65,130 @@ def requires_auth(f):
     return decorated
 
 
-@app.route('/', methods=['GET', 'POST'])
-@requires_auth
-def index():
-    if request.method == 'POST':
-        # Accept either a direct URL or a posted HTML file.
-        url = request.form.get('url', '').strip()
-        file = request.files.get('file')
-        company = request.form.get('company', '').strip()
-        use_llm_flags = request.form.getlist('use_llm_flag')
-        use_llm = None
-        if use_llm_flags:
-            use_llm = '1' in use_llm_flags
-        else:
-            use_llm = USE_LLM_DEFAULT
+def run_pipeline():
+    # Accept either a direct URL or a posted HTML file.
+    url = request.form.get('url', '').strip()
+    file = request.files.get('file')
+    company = request.form.get('company', '').strip()
+    use_llm_flags = request.form.getlist('use_llm_flag')
+    use_llm = None
+    if use_llm_flags:
+        use_llm = '1' in use_llm_flags
+    else:
+        use_llm = USE_LLM_DEFAULT
 
-        if not company:
-            flash('Please provide a company name')
-            return redirect(request.url)
+    if not company:
+        return None, None, None, "Please provide a company name"
 
-        unique_suffix = datetime.utcnow().strftime('%Y%m%d%H%M%S') + '_' + uuid.uuid4().hex[:8]
+    unique_suffix = datetime.utcnow().strftime('%Y%m%d%H%M%S') + '_' + uuid.uuid4().hex[:8]
 
-        # If a URL was provided, fetch and save it as an HTML file
-        if url:
-            try:
-                headers = {'User-Agent': 'Mozilla/5.0 (automated)'}
-                resp = requests.get(url, headers=headers, timeout=20)
-                resp.raise_for_status()
-            except Exception as e:
-                flash(f'Failed to fetch URL: {e}')
-                return redirect(request.url)
-
-            saved_name = f"url_{unique_suffix}.html"
-            saved_path = os.path.join(UPLOAD_FOLDER, saved_name)
-            try:
-                with open(saved_path, 'wb') as fh:
-                    fh.write(resp.content)
-            except Exception as e:
-                flash(f'Failed to save fetched HTML: {e}')
-                return redirect(request.url)
-
-        else:
-            # file handling path
-            if not file or file.filename == '':
-                flash('No file selected and no URL provided')
-                return redirect(request.url)
-            if not allowed_file(file.filename):
-                flash('Unsupported file type. Upload HTML file.')
-                return redirect(request.url)
-
-            filename = secure_filename(file.filename)
-            saved_name = f"{os.path.splitext(filename)[0]}_{unique_suffix}{os.path.splitext(filename)[1]}"
-            saved_path = os.path.join(UPLOAD_FOLDER, saved_name)
-            file.save(saved_path)
-
-        # create output paths
-        mid_name = f"mid_product_{unique_suffix}.xlsx"
-        safe_company = secure_filename(company) or "output"
-        final_download_name = f"{safe_company}_financial_modeling.xlsx"
-        final_name = f"final_{unique_suffix}.xlsx"
-        mid_path = os.path.join(OUTPUT_FOLDER, mid_name)
-        final_path = os.path.join(OUTPUT_FOLDER, final_name)
-
-        # Build command: use same Python interpreter running the app (respects venv)
-        python_exec = sys.executable
-        script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'unified_pipeline.py'))
-
-        cmd = [python_exec, script_path, '--html', saved_path, '--company', company, '--mid-product', mid_path, '--final', final_path]
-        if use_llm:
-            cmd.append('--use-llm')
-
+    # If a URL was provided, fetch and save it as an HTML file
+    if url:
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            headers = {'User-Agent': 'Mozilla/5.0 (automated)'}
+            resp = requests.get(url, headers=headers, timeout=20)
+            resp.raise_for_status()
         except Exception as e:
-            flash(f'Failed to run pipeline: {e}')
-            return redirect(request.url)
+            return None, None, None, f'Failed to fetch URL: {e}'
 
-        stdout = proc.stdout
-        stderr = proc.stderr
-        returncode = proc.returncode
-        if use_llm and "LLM mapping failed" in stdout + stderr:
-            # Surface a friendly note when LLM is unavailable; pipeline falls back to heuristics
-            flash("LLM was requested but unavailable; fell back to non-LLM mapping.")
+        saved_name = f"url_{unique_suffix}.html"
+        saved_path = os.path.join(UPLOAD_FOLDER, saved_name)
+        try:
+            with open(saved_path, 'wb') as fh:
+                fh.write(resp.content)
+        except Exception as e:
+            return None, None, None, f'Failed to save fetched HTML: {e}'
 
-        # If pipeline failed, return an error (so the browser doesn't download HTML as .xlsx)
-        if returncode != 0:
-            error_msg = f"Pipeline failed (exit {returncode}). See logs below."
-            if request.form.get('ajax') == '1':
-                body = f"{error_msg}\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}"
-                return Response(body, status=500, mimetype='text/plain')
-            flash(error_msg)
-            return render_template('result.html', stdout=stdout, stderr=stderr, final_filename=None)
+    else:
+        # file handling path
+        if not file or file.filename == '':
+            return None, None, None, 'No file selected and no URL provided'
+        if not allowed_file(file.filename):
+            return None, None, None, 'Unsupported file type. Upload HTML file.'
 
-        # If this was an AJAX POST (from the JS UI), return the final Excel file directly
+        filename = secure_filename(file.filename)
+        saved_name = f"{os.path.splitext(filename)[0]}_{unique_suffix}{os.path.splitext(filename)[1]}"
+        saved_path = os.path.join(UPLOAD_FOLDER, saved_name)
+        file.save(saved_path)
+
+    # create output paths
+    mid_name = f"mid_product_{unique_suffix}.xlsx"
+    safe_company = secure_filename(company) or "output"
+    final_download_name = f"{safe_company}_financial_modeling.xlsx"
+    final_name = f"final_{unique_suffix}.xlsx"
+    mid_path = os.path.join(OUTPUT_FOLDER, mid_name)
+    final_path = os.path.join(OUTPUT_FOLDER, final_name)
+
+    # Build command: use same Python interpreter running the app (respects venv)
+    python_exec = sys.executable
+    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'unified_pipeline.py'))
+
+    cmd = [python_exec, script_path, '--html', saved_path, '--company', company, '--mid-product', mid_path, '--final', final_path]
+    if use_llm:
+        cmd.append('--use-llm')
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    except Exception as e:
+        return None, None, None, f'Failed to run pipeline: {e}'
+
+    stdout = proc.stdout
+    stderr = proc.stderr
+    returncode = proc.returncode
+    if use_llm and "LLM mapping failed" in stdout + stderr:
+        flash("LLM was requested but unavailable; fell back to non-LLM mapping.")
+
+    if returncode != 0:
+        return None, stdout, stderr, f"Pipeline failed (exit {returncode}). See logs below."
+
+    if not os.path.exists(final_path) or os.path.getsize(final_path) == 0:
+        return None, stdout, stderr, "Final file not found after processing."
+
+    return {"final_path": final_path, "final_download_name": final_download_name}, stdout, stderr, None
+
+
+@app.route('/', methods=['GET'])
+@requires_auth
+def home():
+    return render_template('home.html')
+
+
+@app.route('/app', methods=['GET'])
+@requires_auth
+def app_page():
+    return render_template('app.html', use_llm_default=USE_LLM_DEFAULT)
+
+
+@app.route('/help', methods=['GET'])
+@requires_auth
+def help_page():
+    return render_template('help.html')
+
+
+@app.route('/settings', methods=['GET'])
+@requires_auth
+def settings_page():
+    return render_template('settings.html', use_llm_default=USE_LLM_DEFAULT)
+
+
+@app.route('/generate', methods=['POST'])
+@requires_auth
+def generate():
+    result, stdout, stderr, err = run_pipeline()
+    if err:
         if request.form.get('ajax') == '1':
-            if os.path.exists(final_path) and os.path.getsize(final_path) > 0:
-                # send file as attachment so the browser downloads it
-                return send_file(final_path, as_attachment=True, download_name=final_download_name)
-            else:
-                body = f"Final file not found after processing.\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}"
-                return Response(body, status=500, mimetype='text/plain')
+            body = f"{err}\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}"
+            return Response(body, status=500, mimetype='text/plain')
+        flash(err)
+        return render_template('result.html', stdout=stdout, stderr=stderr, final_filename=None)
 
-        if not os.path.exists(final_path) or os.path.getsize(final_path) == 0:
-            flash('Final file not found after processing')
-            final_for_template = None
-        else:
-            final_for_template = final_download_name
+    final_path = result["final_path"]
+    final_download_name = result["final_download_name"]
 
-        return render_template('result.html', stdout=stdout, stderr=stderr, final_filename=final_for_template)
+    if request.form.get('ajax') == '1':
+        return send_file(final_path, as_attachment=True, download_name=final_download_name)
 
-    return render_template('index.html', use_llm_default=USE_LLM_DEFAULT)
+    return render_template('result.html', stdout=stdout, stderr=stderr, final_filename=final_download_name)
 
 
 @app.route('/download/<filename>')
@@ -183,7 +197,7 @@ def download(filename):
     fpath = os.path.join(OUTPUT_FOLDER, filename)
     if not os.path.exists(fpath):
         flash('File not found')
-        return redirect(url_for('index'))
+        return redirect(url_for('app_page'))
     return send_file(fpath, as_attachment=True, download_name=filename)
 
 

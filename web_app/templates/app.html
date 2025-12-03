@@ -1,0 +1,406 @@
+{% extends "base.html" %}
+{% block title %}App · 10-K AutoModel{% endblock %}
+{% block extra_head %}
+<style>
+  .grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: rgba(255,255,255,0.92);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    box-shadow: var(--shadow);
+  }
+  .section {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    background: rgba(255,255,255,0.96);
+    margin-top: 12px;
+    box-shadow: 0 8px 24px rgba(17,24,39,0.06);
+  }
+  .section h3 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    font-weight: 800;
+  }
+  label { display: block; font-weight: 700; margin: 10px 0 6px; letter-spacing: -0.01em; }
+  .hint { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .input, input[type="text"], input[type="file"] {
+    width: 100%;
+    padding: 12px 13px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    font-size: 15px;
+    background: #fff;
+    color: var(--text);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.05s ease;
+  }
+  .input:focus, input[type="text"]:focus, input[type="file"]:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(95, 90, 246, 0.16);
+    transform: translateY(-1px);
+  }
+  #dropZone {
+    border: 2px dashed var(--border);
+    padding: 16px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(248,250,255,0.9));
+    transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  #dropZone.dragover {
+    border-color: var(--accent);
+    background: linear-gradient(135deg, rgba(95,90,246,0.08), rgba(90, 231, 255, 0.08));
+    box-shadow: 0 12px 26px rgba(95,90,246,0.18);
+  }
+  .drop-inner {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    align-items: center;
+  }
+  .drop-icon {
+    width: 50px;
+    height: 50px;
+    border-radius: 14px;
+    background: rgba(95,90,246,0.12);
+    display: grid;
+    place-items: center;
+    font-size: 26px;
+    color: var(--accent);
+    box-shadow: inset 0 0 0 1px rgba(95,90,246,0.2);
+  }
+  .actions {
+    margin-top: 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  button {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    color: #fff;
+    padding: 13px 18px;
+    border: none;
+    border-radius: 12px;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    box-shadow: 0 16px 32px rgba(95, 90, 246, 0.25);
+    transition: transform 0.1s ease, box-shadow 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  button:hover { box-shadow: 0 18px 36px rgba(95, 90, 246, 0.32); transform: translateY(-1px); }
+  button:active { transform: translateY(1px); }
+  .spinner {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: #fff;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+  button.loading .spinner { display: inline-block; }
+  button.loading .btn-text { opacity: 0.75; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .toggle {
+    position: relative;
+    width: 54px;
+    height: 28px;
+    border-radius: 999px;
+    background: #e5e7eb;
+    border: 1px solid #d1d5db;
+    transition: background 0.2s ease, border-color 0.2s ease;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .toggle::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 23px;
+    height: 23px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.18);
+    transition: transform 0.2s ease;
+  }
+  .toggle.on {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    border-color: rgba(95,90,246,0.6);
+  }
+  .toggle.on::after { transform: translateX(25px); }
+  .checkbox {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .list {
+    display: grid;
+    gap: 10px;
+    padding: 0;
+    margin: 12px 0 0;
+    list-style: none;
+  }
+  .list li {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; margin-top: 6px; }
+  .toast {
+    position: fixed;
+    left: 50%;
+    top: 20px;
+    transform: translateX(-50%);
+    padding: 12px 16px;
+    border-radius: 12px;
+    color: #0f2a0f;
+    background: #d3f9d8;
+    border: 1px solid #9ae6b4;
+    box-shadow: var(--shadow);
+    font-weight: 600;
+    display: none;
+    z-index: 20;
+  }
+  .toast.error { background: #ffe3e3; border-color: #ffa8a8; color: #5f0f17; }
+  .banner {
+    display: none;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: #ffe3e3;
+    color: #5f0f17;
+    border: 1px solid #ffa8a8;
+    font-weight: 600;
+  }
+  .status {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+</style>
+{% endblock %}
+{% block content %}
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="grid">
+    <div class="card">
+      <div class="banner" id="errorBanner"></div>
+      <form method="post" enctype="multipart/form-data" id="mainForm" action="{{ url_for('generate') }}">
+
+        <div class="section">
+          <h3>Step 1 · Source</h3>
+          <div id="dropZone">
+            <div class="drop-inner">
+              <div class="drop-icon">⬆️</div>
+              <div>
+                <label for="urlInput" style="margin:0;">URL (preferred)</label>
+                <input class="input" type="text" name="url" id="urlInput" autocomplete="url" placeholder="https://example.com/filing.html" />
+                <div class="hint" id="dropText">Drag & drop a link here, or paste a URL. If both URL and file are provided, the URL wins.</div>
+              </div>
+            </div>
+          </div>
+          <label for="fileInput" style="margin-top:12px;">Or upload HTML file (.html / .htm)</label>
+          <input class="input" type="file" id="fileInput" name="file" accept=".html,.htm" />
+        </div>
+
+        <div class="section">
+          <h3>Step 2 · Company</h3>
+          <label for="company">Company name</label>
+          <input class="input" type="text" name="company" id="company" autocomplete="organization" placeholder="e.g. Apple Inc." required />
+        </div>
+
+        <div class="section">
+          <h3>Step 3 · Options</h3>
+          <div class="checkbox">
+            <input type="hidden" name="use_llm_flag" value="0" />
+            <div class="toggle" id="llmToggle" aria-label="Use LLM label mapping"></div>
+            <input type="checkbox" id="useLLM" name="use_llm_flag" value="1" {% if use_llm_default %}checked{% endif %} style="display:none;" />
+            <label for="useLLM" style="margin:0;">Use LLM label mapping (OpenAI)</label>
+          </div>
+        </div>
+
+        <div class="section">
+          <h3>Step 4 · Generate</h3>
+          <div class="actions">
+            <button type="submit" id="generateBtn">
+              <span class="spinner"></span>
+              <span class="btn-text">Generate</span>
+            </button>
+          </div>
+          <div class="status" id="statusText" role="status" aria-live="polite"></div>
+        </div>
+
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="pill">Tips</div>
+      <ul class="list">
+        <li><span class="dot"></span><span>Use a direct 10‑K HTML URL (not PDF). If both URL and file are provided, URL wins.</span></li>
+        <li><span class="dot"></span><span>LLM option: smarter label mapping and sentiment to gently adjust revenue growth.</span></li>
+        <li><span class="dot"></span><span>Projected years auto-link to assumptions; actuals stay editable.</span></li>
+        <li><span class="dot"></span><span>Download triggers automatically when the file is ready.</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      const drop = document.getElementById('dropZone');
+      const dropText = document.getElementById('dropText');
+      const urlInput = document.getElementById('urlInput');
+      const form = document.getElementById('mainForm');
+      const submitBtn = document.getElementById('generateBtn');
+      const toast = document.getElementById('toast');
+      const errorBanner = document.getElementById('errorBanner');
+      const llmToggle = document.getElementById('llmToggle');
+      const llmCheckbox = document.getElementById('useLLM');
+      const statusText = document.getElementById('statusText');
+
+      let toastTimeout;
+
+      // Apply settings from localStorage
+      try {
+        const storedLLM = localStorage.getItem('llm_default');
+        const storedCompany = localStorage.getItem('default_company');
+        if (storedLLM === '1') {
+          llmCheckbox.checked = true;
+        }
+        if (storedCompany) {
+          document.getElementById('company').placeholder = storedCompany;
+        }
+      } catch (e) {}
+
+      // Sync toggle with hidden checkbox
+      function syncToggleFromCheckbox() {
+        if (llmCheckbox.checked) {
+          llmToggle.classList.add('on');
+        } else {
+          llmToggle.classList.remove('on');
+        }
+      }
+      syncToggleFromCheckbox();
+      llmToggle.addEventListener('click', () => {
+        llmCheckbox.checked = !llmCheckbox.checked;
+        syncToggleFromCheckbox();
+      });
+
+      function showToast(message, isError=false) {
+        toast.textContent = isError ? `⚠️ ${message}` : `✅ ${message}`;
+        toast.classList.toggle('error', isError);
+        toast.style.display = 'block';
+        clearTimeout(toastTimeout);
+        toastTimeout = setTimeout(() => { toast.style.display = 'none'; }, 4500);
+      }
+
+      function showError(message) {
+        errorBanner.textContent = message;
+        errorBanner.style.display = 'block';
+        errorBanner.setAttribute('role', 'status');
+        errorBanner.setAttribute('aria-live', 'polite');
+        showToast(message, true);
+      }
+
+      function clearError() {
+        errorBanner.style.display = 'none';
+      }
+
+      drop.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        drop.classList.add('dragover');
+        dropText.textContent = 'Drop the URL or file here…';
+      });
+      drop.addEventListener('dragleave', (e) => {
+        drop.classList.remove('dragover');
+        dropText.textContent = 'Drag & drop a link here, or paste a URL. If both URL and file are provided, the URL wins.';
+      });
+
+      drop.addEventListener('drop', (e) => {
+        e.preventDefault();
+        drop.classList.remove('dragover');
+        dropText.textContent = 'Drag & drop a link here, or paste a URL. If both URL and file are provided, the URL wins.';
+        const items = e.dataTransfer.items;
+        if(items){
+          for(let i=0;i<items.length;i++){
+            const it = items[i];
+            if(it.kind === 'string'){
+              it.getAsString(function(s){
+                const m = s.match(/https?:\/\/[\S]+/);
+                if(m) urlInput.value = m[0];
+              });
+            }
+          }
+        }
+      });
+
+      urlInput.addEventListener('paste', (e)=>{ setTimeout(()=>{ urlInput.value = urlInput.value.trim(); }, 10); });
+
+      // Intercept form submit and do AJAX POST to receive the generated Excel as a file
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        clearError();
+        submitBtn.classList.add('loading');
+        submitBtn.disabled = true;
+        statusText.textContent = 'Running pipeline… extracting statements…';
+
+        const fd = new FormData(form);
+        fd.append('ajax', '1');
+
+        try {
+          const resp = await fetch(form.action || '/generate', { method: 'POST', body: fd, credentials: 'same-origin' });
+          if (!resp.ok) {
+            const text = await resp.text();
+            showError('Server error during generation. Please try again.');
+            console.error('Server error response:', text);
+            return;
+          }
+
+          const disposition = resp.headers.get('Content-Disposition') || '';
+          let filename = 'final.xlsx';
+          const m = disposition.match(/filename="?([^\";]+)"?/);
+          if (m) filename = m[1];
+
+          const blob = await resp.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(url);
+          showToast(`Success ✓ Excel downloaded: ${filename}`);
+          statusText.textContent = '';
+
+        } catch (err) {
+          console.error(err);
+          showError('Error generating file. See console for details.');
+          statusText.textContent = '';
+        } finally {
+          submitBtn.classList.remove('loading');
+          submitBtn.disabled = false;
+        }
+      });
+    })();
+  </script>
+{% endblock %}

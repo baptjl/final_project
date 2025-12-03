@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Settings · 10-K AutoModel{% endblock %}
+{% block extra_head %}
+<style>
+  .card {
+    background: rgba(255,255,255,0.92);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    box-shadow: var(--shadow);
+  }
+  label { display:block; font-weight:700; margin:10px 0 6px; }
+  .hint { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .input {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    font-size: 15px;
+  }
+  .toggle {
+    position: relative;
+    width: 54px;
+    height: 28px;
+    border-radius: 999px;
+    background: #e5e7eb;
+    border: 1px solid #d1d5db;
+    transition: background 0.2s ease, border-color 0.2s ease;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .toggle::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 23px;
+    height: 23px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.18);
+    transition: transform 0.2s ease;
+  }
+  .toggle.on {
+    background: linear-gradient(135deg, #5f5af6 0%, #3a35d3 100%);
+    border-color: rgba(95,90,246,0.6);
+  }
+  .toggle.on::after { transform: translateX(25px); }
+  .row { display:flex; align-items:center; gap:10px; }
+  .actions { margin-top:14px; }
+  button {
+    background: linear-gradient(135deg, #5f5af6 0%, #3a35d3 100%);
+    color: #fff;
+    padding: 10px 16px;
+    border: none;
+    border-radius: 10px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .status { margin-top: 10px; color: var(--muted); }
+</style>
+{% endblock %}
+{% block content %}
+  <div class="card">
+    <h2>Settings</h2>
+    <p class="subtitle">Preferences are stored in your browser (localStorage).</p>
+
+    <div class="row" style="margin-top:12px;">
+      <div class="toggle" id="llmDefault"></div>
+      <div>
+        <label style="margin:0;">Default: Use LLM label mapping</label>
+        <div class="hint">Applies to new sessions on the App page.</div>
+      </div>
+    </div>
+
+    <label for="defaultCompany" style="margin-top:12px;">Default company placeholder</label>
+    <input class="input" id="defaultCompany" type="text" placeholder="e.g. Apple Inc." />
+    <div class="hint">Shown as placeholder on the App page.</div>
+
+    <div class="actions">
+      <button id="saveSettings">Save settings</button>
+      <div class="status" id="settingsStatus"></div>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      const llmToggle = document.getElementById('llmDefault');
+      const defaultCompany = document.getElementById('defaultCompany');
+      const status = document.getElementById('settingsStatus');
+      const btn = document.getElementById('saveSettings');
+
+      function syncToggle(flag) {
+        if (flag) llmToggle.classList.add('on'); else llmToggle.classList.remove('on');
+      }
+
+      // Load
+      try {
+        const storedLLM = localStorage.getItem('llm_default');
+        const storedCompany = localStorage.getItem('default_company');
+        if (storedLLM === '1') syncToggle(true);
+        if (storedCompany) defaultCompany.value = storedCompany;
+      } catch (e) {}
+
+      llmToggle.addEventListener('click', () => {
+        llmToggle.classList.toggle('on');
+      });
+
+      btn.addEventListener('click', () => {
+        try {
+          const llmFlag = llmToggle.classList.contains('on') ? '1' : '0';
+          const companyVal = defaultCompany.value.trim();
+          localStorage.setItem('llm_default', llmFlag);
+          if (companyVal) localStorage.setItem('default_company', companyVal);
+          else localStorage.removeItem('default_company');
+          status.textContent = 'Saved!';
+          setTimeout(() => status.textContent = '', 2000);
+        } catch (e) {
+          status.textContent = 'Unable to save settings in this browser.';
+        }
+      });
+    })();
+  </script>
+{% endblock %}
