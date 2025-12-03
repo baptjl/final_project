@@ -1152,10 +1152,10 @@ def _apply_projection_formulas(final_path: Path) -> None:
         except Exception:
             rev_cell.value = f"({rev_cell.value})+({sentiment_bump})"
         rev_cell.number_format = "0.0%;(0.0%)"
-        # Drop a small note to the right of the assumptions block (R5/R6)
-        ws.cell(row=5, column=18, value=f"Sentiment adj: {sentiment_bump:+.2%}")
+        # Drop a small note to the right of the assumptions block (S5/S6)
+        ws.cell(row=5, column=19, value=f"Sentiment adj: {sentiment_bump:+.2%}")
         if sentiment_note:
-            ws.cell(row=6, column=18, value=f"Evidence: {sentiment_note}")
+            ws.cell(row=6, column=19, value=f"Evidence: {sentiment_note}")
 
     def _coord(r, c):
         return f"{get_column_letter(c)}{r}"
