@@ -234,7 +234,7 @@
         <div class="pill">What happens</div>
         <ul class="list">
           <li><span class="dot"></span><span>We detect the P&L table and units, map line items, and fill the model.</span></li>
-          <li><span class="dot"></span><span>Optional LLM label mapping and sentiment-adjusted growth (enable on Render via <code>USE_LLM_SENTIMENT=1</code>).</span></li>
+          <li><span class="dot"></span><span>Optional AI: smarter label mapping plus an outlook score that can nudge revenue growth.</span></li>
           <li><span class="dot"></span><span>Projected years auto-link to assumptions; download as ready-to-edit Excel.</span></li>
           <li><span class="dot"></span><span>Processing runs on your service; no files are sent elsewhere beyond the configured LLM provider.</span></li>
         </ul>
@@ -252,6 +252,8 @@
       const urlInput = document.getElementById('urlInput');
       const form = document.getElementById('mainForm');
       const submitBtn = form.querySelector('button[type="submit"]');
+      const card = document.querySelector('.card');
+      const wrap = document.querySelector('.wrap');
 
       drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.style.background = 'rgba(125, 211, 252, 0.08)'; });
       drop.addEventListener('dragleave', (e) => { drop.style.background = 'rgba(255,255,255,0.02)'; });
@@ -274,6 +276,17 @@
       });
 
       urlInput.addEventListener('paste', (e)=>{ setTimeout(()=>{ urlInput.value = urlInput.value.trim(); }, 10); });
+
+      // Subtle parallax on mouse move
+      wrap.addEventListener('mousemove', (e) => {
+        const rect = wrap.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / rect.width - 0.5;
+        const y = (e.clientY - rect.top) / rect.height - 0.5;
+        wrap.style.transform = `translate(${x * 6}px, ${y * 6}px)`;
+      });
+      wrap.addEventListener('mouseleave', () => {
+        wrap.style.transform = 'translate(0,0)';
+      });
 
       // Intercept form submit and do AJAX POST to receive the generated Excel as a file
       form.addEventListener('submit', async (e) => {
