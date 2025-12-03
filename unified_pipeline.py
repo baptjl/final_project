@@ -49,7 +49,6 @@ LAST_META_PATH = BASE_DIR / "automodel/data/interim/last_meta.json"
 LAST_SENTIMENT_PATH = BASE_DIR / "automodel/data/interim/last_sentiment.json"
 USE_LLM_EXTRACTION = os.environ.get("USE_LLM_EXTRACTION", "0").lower() in {"1", "true", "yes", "on"}
 USE_LLM_SENTIMENT = os.environ.get("USE_LLM_SENTIMENT", "0").lower() in {"1", "true", "yes", "on"}
-SENTIMENT_MAX_BUMP = float(os.environ.get("SENTIMENT_MAX_BUMP", "0.02"))  # max ±2 pts
 
 
 def _heuristic_score(df: pd.DataFrame) -> int:
@@ -221,19 +220,36 @@ def _extract_outlook_snippet(raw_html: str, max_len: int = 8000, window: int = 8
 
 def _llm_sentiment_score(raw_html: str) -> Optional[dict]:
     """
-    Ask LLM for an optimism score (-1..1) and brief evidence from the filing text.
+    Ask LLM for forward-looking revenue sentiment. Returns dict with score, label, evidence_quotes, justification_short.
     """
     snippet = _extract_outlook_snippet(raw_html)
     prompt = (
-        "Read the following 10-K HTML snippet and assess management/market optimism about the company's future. "
-        "Score: -1 (very pessimistic) to +1 (very optimistic), use tone AND any explicit guidance on growth/demand. "
-        "Return ONLY JSON like {\"score\": <number>, \"evidence\": \"short forward-looking quote\"}. "
-        "Pick the single best forward-looking sentence/phrase (<=200 chars) that supports the score."
+        "You are an equity research analyst. Given excerpts from a company’s 10-K, evaluate management’s forward-looking tone "
+        "about REVENUE GROWTH over the next 2–3 years.\n\n"
+        "Rules:\n"
+        "1) Only consider statements about future revenue, sales, demand, volume, bookings, or growth/decline.\n"
+        "2) Ignore generic IR boilerplate (e.g., shareholder value, EPS growth, mission statements) without concrete outlook.\n"
+        "3) Downweight legal safe-harbor language unless it clearly signals worsening conditions.\n"
+        "4) Focus on sentences containing 'expect', 'anticipate', 'forecast', 'guidance', 'we believe revenue will', or directional/ numeric info like 'high single-digit growth', 'decline', etc.\n\n"
+        "Scoring:\n"
+        "-2 = clearly negative / explicit revenue decline outlook\n"
+        "-1 = mildly negative / cautious (flat to slight decline, significant headwinds)\n"
+        " 0 = neutral / mixed / no real information\n"
+        "+1 = mildly positive (modest revenue growth expected)\n"
+        "+2 = clearly positive with explicit strong growth expectations\n\n"
+        "If there is no concrete forward-looking revenue/demand commentary, score MUST be 0.\n\n"
+        "Return ONLY valid JSON:\n"
+        "{\n"
+        "  \"score\": -2 | -1 | 0 | 1 | 2,\n"
+        "  \"label\": \"strongly_negative\" | \"mildly_negative\" | \"neutral\" | \"mildly_positive\" | \"strongly_positive\",\n"
+        "  \"evidence_quotes\": [\"short quote 1\", \"short quote 2\"],\n"
+        "  \"justification_short\": \"one or two sentences summarizing why\"\n"
+        "}"
     )
     try:
         resp = _llm_chat(
             [
-                {"role": "system", "content": "You score outlook optimism from filings."},
+                {"role": "system", "content": "You score forward revenue outlook from filings."},
                 {"role": "user", "content": prompt + "\nSNIPPET:\n" + snippet},
             ],
             temperature=0.0,
@@ -246,16 +262,46 @@ def _llm_sentiment_score(raw_html: str) -> Optional[dict]:
             if txt.startswith("json"):
                 txt = txt[len("json"):].strip()
         data = json.loads(txt)
-        score = float(data.get("score", 0))
-        ev_val = data.get("evidence", "")
-        if isinstance(ev_val, list):
-            evidence = " ".join(str(x) for x in ev_val if x)[:200]
-        else:
-            evidence = str(ev_val)[:200]
-        return {"score": max(min(score, 1.0), -1.0), "evidence": evidence}
+        return data
     except Exception as e:
         print(f"[WARN] LLM sentiment failed: {e}")
         return None
+
+
+def compute_revenue_growth_bump(sentiment: Optional[dict]) -> float:
+    """
+    Validate sentiment JSON, map score to bump (pct points), enforce evidence check and clamp.
+    Mapping (score -> bump, pct pts):
+      -2 -> -1.50
+      -1 -> -0.75
+       0 ->  0.00
+      +1 -> +0.50
+      +2 -> +1.00
+    Clamp to [-1.5, 1.5]. Require evidence mentioning revenue/demand/growth/decline.
+    """
+    if not sentiment or not isinstance(sentiment, dict):
+        return 0.0
+    score = sentiment.get("score", 0)
+    try:
+        score = int(score)
+    except Exception:
+        score = 0
+    if score not in {-2, -1, 0, 1, 2}:
+        score = 0
+    evidence_quotes = sentiment.get("evidence_quotes") or sentiment.get("evidence") or []
+    if isinstance(evidence_quotes, str):
+        evidence_quotes = [evidence_quotes]
+    if not isinstance(evidence_quotes, list):
+        evidence_quotes = []
+    # require revenue/demand language in evidence
+    keywords = ("revenue", "sales", "demand", "growth", "decline", "bookings", "volume")
+    has_keyword = any(any(k in q.lower() for k in keywords) for q in evidence_quotes if isinstance(q, str))
+    if not evidence_quotes or not has_keyword:
+        score = 0
+    mapping = {-2: -1.50, -1: -0.75, 0: 0.0, 1: 0.50, 2: 1.00}
+    bump = mapping.get(score, 0.0)
+    bump = max(min(bump, 1.5), -1.5)
+    return bump
 
 
 def _map_and_save(
@@ -1152,9 +1198,12 @@ def _apply_projection_formulas(final_path: Path) -> None:
     if USE_LLM_SENTIMENT and LAST_SENTIMENT_PATH.exists():
         try:
             data = json.loads(LAST_SENTIMENT_PATH.read_text())
-            score = float(data.get("score", 0))
-            sentiment_bump = max(min(score, 1.0), -1.0) * SENTIMENT_MAX_BUMP
-            sentiment_note = str(data.get("evidence", ""))[:180]
+            sentiment_bump = compute_revenue_growth_bump(data) / 100.0  # bump given in pct points; convert to decimal
+            ev = data.get("evidence_quotes") or data.get("evidence") or []
+            if isinstance(ev, str):
+                sentiment_note = ev
+            elif isinstance(ev, list) and ev:
+                sentiment_note = "; ".join(str(x) for x in ev if x)[:180]
         except Exception as e:
             print(f"[WARN] Could not read sentiment: {e}")
 
