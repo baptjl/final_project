@@ -46,7 +46,10 @@ YEAR_RE = re.compile(r"(?<!\d)(20\d{2})(?!\d)", re.I)
 BASE_DIR = Path(__file__).resolve().parent
 LAST_SUMMARY_PATH = BASE_DIR / "automodel/data/interim/last_summary.csv"
 LAST_META_PATH = BASE_DIR / "automodel/data/interim/last_meta.json"
+LAST_SENTIMENT_PATH = BASE_DIR / "automodel/data/interim/last_sentiment.json"
 USE_LLM_EXTRACTION = os.environ.get("USE_LLM_EXTRACTION", "0").lower() in {"1", "true", "yes", "on"}
+USE_LLM_SENTIMENT = os.environ.get("USE_LLM_SENTIMENT", "0").lower() in {"1", "true", "yes", "on"}
+SENTIMENT_MAX_BUMP = float(os.environ.get("SENTIMENT_MAX_BUMP", "0.02"))  # max ±2 pts
 
 
 def _heuristic_score(df: pd.DataFrame) -> int:
@@ -187,6 +190,58 @@ def _llm_detect_unit(raw_html: str) -> Optional[str]:
     except Exception as e:
         print(f"[WARN] LLM unit detection failed: {e}")
     return None
+
+
+def _extract_outlook_snippet(raw_html: str, max_len: int = 8000) -> str:
+    """
+    Grab a lightweight snippet likely to contain outlook/forward-looking commentary.
+    This is intentionally simple to avoid new dependencies.
+    """
+    lowered = raw_html.lower()
+    keywords = ["outlook", "guidance", "future", "trend", "expect", "forecast", "md&a", "discussion", "prospect"]
+    best_start = 0
+    for kw in keywords:
+        idx = lowered.find(kw)
+        if idx != -1:
+            best_start = idx
+            break
+    start = max(0, best_start - 1000)
+    end = min(len(raw_html), start + max_len)
+    return raw_html[start:end]
+
+
+def _llm_sentiment_score(raw_html: str) -> Optional[dict]:
+    """
+    Ask LLM for an optimism score (-1..1) and brief evidence from the filing text.
+    """
+    snippet = _extract_outlook_snippet(raw_html)
+    prompt = (
+        "Read the following 10-K HTML snippet and assess management/market optimism about the company's future. "
+        "Return ONLY JSON like {\"score\": <number between -1 and 1>, \"evidence\": \"short quote\"}. "
+        "Positive score = optimistic, negative = pessimistic. Keep evidence short (<=200 chars)."
+    )
+    try:
+        resp = _llm_chat(
+            [
+                {"role": "system", "content": "You score outlook optimism from filings."},
+                {"role": "user", "content": prompt + "\nSNIPPET:\n" + snippet},
+            ],
+            temperature=0.0,
+        )
+        txt = resp.strip()
+        if txt.startswith("```"):
+            parts = txt.split("```")
+            if len(parts) >= 3:
+                txt = parts[1]
+            if txt.startswith("json"):
+                txt = txt[len("json"):].strip()
+        data = json.loads(txt)
+        score = float(data.get("score", 0))
+        evidence = str(data.get("evidence", ""))[:200]
+        return {"score": max(min(score, 1.0), -1.0), "evidence": evidence}
+    except Exception as e:
+        print(f"[WARN] LLM sentiment failed: {e}")
+        return None
 
 
 def _map_and_save(
@@ -517,6 +572,16 @@ def step1_extract_from_html(html_path: Path, skip_llm: bool = True) -> Path:
         raise FileNotFoundError(f"HTML file not found: {html_path}")
     
     raw = html_path.read_text(errors="ignore")
+
+    # Optional sentiment scoring (lightweight) for revenue growth adjustment
+    if USE_LLM_SENTIMENT and not skip_llm:
+        sentiment = _llm_sentiment_score(raw)
+        if sentiment:
+            try:
+                LAST_SENTIMENT_PATH.parent.mkdir(parents=True, exist_ok=True)
+                LAST_SENTIMENT_PATH.write_text(json.dumps(sentiment, indent=2))
+            except Exception as e:
+                print(f"[WARN] Could not save sentiment: {e}")
     
     # LLM unit hint (lightweight)
     unit_hint = None
@@ -1066,6 +1131,31 @@ def _apply_projection_formulas(final_path: Path) -> None:
         for cell in row:
             if cell.value is not None:
                 cell.font = Font(name="Arial", size=12, bold=cell.font.bold, italic=cell.font.italic, color=cell.font.color)
+
+    # Optional sentiment bump to revenue growth assumption (Q5)
+    sentiment_bump = 0.0
+    sentiment_note = ""
+    if USE_LLM_SENTIMENT and LAST_SENTIMENT_PATH.exists():
+        try:
+            data = json.loads(LAST_SENTIMENT_PATH.read_text())
+            score = float(data.get("score", 0))
+            sentiment_bump = max(min(score, 1.0), -1.0) * SENTIMENT_MAX_BUMP
+            sentiment_note = str(data.get("evidence", ""))[:180]
+        except Exception as e:
+            print(f"[WARN] Could not read sentiment: {e}")
+
+    if sentiment_bump and ASSUMP.get("rev"):
+        rev_cell = ws[ASSUMP["rev"]]
+        try:
+            base_val = float(rev_cell.value)
+            rev_cell.value = base_val + sentiment_bump
+        except Exception:
+            rev_cell.value = f"({rev_cell.value})+({sentiment_bump})"
+        rev_cell.number_format = "0.0%;(0.0%)"
+        # Drop a small note to the right of the assumptions block (R5/R6)
+        ws.cell(row=5, column=18, value=f"Sentiment adj: {sentiment_bump:+.2%}")
+        if sentiment_note:
+            ws.cell(row=6, column=18, value=f"Evidence: {sentiment_note}")
 
     def _coord(r, c):
         return f"{get_column_letter(c)}{r}"
