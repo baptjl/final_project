@@ -221,6 +221,8 @@ def _extract_outlook_snippet(raw_html: str, max_len: int = 8000, window: int = 8
 def _llm_sentiment_score(raw_html: str) -> Optional[dict]:
     """
     Ask LLM for forward-looking revenue sentiment. Returns dict with score, label, evidence_quotes, justification_short.
+    Note: today we only analyze the 10-K text passed in. If we later want to incorporate external web sources
+    (news, call transcripts, etc.), add a pre-step that fetches/concatenates that text before this call.
     """
     snippet = _extract_outlook_snippet(raw_html)
     prompt = (
@@ -268,40 +270,79 @@ def _llm_sentiment_score(raw_html: str) -> Optional[dict]:
         return None
 
 
-def compute_revenue_growth_bump(sentiment: Optional[dict]) -> float:
+def compute_sentiment_result(sentiment: Optional[dict]) -> dict:
     """
-    Validate sentiment JSON, map score to bump (pct points), enforce evidence check and clamp.
-    Mapping (score -> bump, pct pts):
-      -2 -> -1.50
-      -1 -> -0.75
-       0 ->  0.00
-      +1 -> +0.50
-      +2 -> +1.00
-    Clamp to [-1.5, 1.5]. Require evidence mentioning revenue/demand/growth/decline.
+    Validate sentiment JSON, map to bump and classification.
+    Outcomes:
+      - neutral_no_info: score=0, no revenue/demand evidence
+      - neutral_balanced: score=0, revenue/demand evidence present
+      - error_or_unavailable: parse/model failure
+    Non-zero scores map to bumps (pct points):
+      -2 -> -1.50, -1 -> -0.75, 0 -> 0.00, +1 -> +0.50, +2 -> +1.00 (clamped [-1.5, 1.5])
     """
-    if not sentiment or not isinstance(sentiment, dict):
-        return 0.0
-    score = sentiment.get("score", 0)
+    result = {
+        "bump_pct": 0.0,
+        "bump_decimal": 0.0,
+        "outcome": "error_or_unavailable",
+        "label": "unknown",
+        "evidence": [],
+        "justification": "",
+        "score": 0,
+    }
     try:
-        score = int(score)
-    except Exception:
-        score = 0
-    if score not in {-2, -1, 0, 1, 2}:
-        score = 0
-    evidence_quotes = sentiment.get("evidence_quotes") or sentiment.get("evidence") or []
-    if isinstance(evidence_quotes, str):
-        evidence_quotes = [evidence_quotes]
-    if not isinstance(evidence_quotes, list):
-        evidence_quotes = []
-    # require revenue/demand language in evidence
-    keywords = ("revenue", "sales", "demand", "growth", "decline", "bookings", "volume")
-    has_keyword = any(any(k in q.lower() for k in keywords) for q in evidence_quotes if isinstance(q, str))
-    if not evidence_quotes or not has_keyword:
-        score = 0
-    mapping = {-2: -1.50, -1: -0.75, 0: 0.0, 1: 0.50, 2: 1.00}
-    bump = mapping.get(score, 0.0)
-    bump = max(min(bump, 1.5), -1.5)
-    return bump
+        if not sentiment or not isinstance(sentiment, dict):
+            return result
+        score = sentiment.get("score", 0)
+        try:
+            score = int(score)
+        except Exception:
+            score = 0
+        if score not in {-2, -1, 0, 1, 2}:
+            score = 0
+        label = sentiment.get("label") or "unknown"
+        evidence = sentiment.get("evidence_quotes") or sentiment.get("evidence") or []
+        if isinstance(evidence, str):
+            evidence = [evidence]
+        if not isinstance(evidence, list):
+            evidence = []
+        justification = sentiment.get("justification_short") or ""
+
+        keywords = ("revenue", "sales", "demand", "growth", "decline", "bookings", "volume")
+        has_keyword = any(isinstance(q, str) and any(k in q.lower() for k in keywords) for q in evidence)
+
+        mapping = {-2: -1.50, -1: -0.75, 0: 0.0, 1: 0.50, 2: 1.00}
+        bump_pct = mapping.get(score, 0.0)
+
+        # classify neutrals and evidence
+        if score == 0:
+            if has_keyword:
+                outcome = "neutral_balanced"
+            else:
+                outcome = "neutral_no_info"
+            bump_pct = 0.0
+        else:
+            outcome = "scored"
+
+        # if no evidence on non-zero, force neutral_no_info
+        if score != 0 and not has_keyword:
+            score = 0
+            bump_pct = 0.0
+            outcome = "neutral_no_info"
+
+        bump_pct = max(min(bump_pct, 1.5), -1.5)
+        result.update({
+            "bump_pct": bump_pct,
+            "bump_decimal": bump_pct / 100.0,
+            "outcome": outcome,
+            "label": label,
+            "evidence": [q for q in evidence if isinstance(q, str)],
+            "justification": justification,
+            "score": score,
+        })
+        return result
+    except Exception as e:
+        print(f"[WARN] Sentiment parse/mapping failed: {e}")
+        return result
 
 
 def _map_and_save(
@@ -1198,14 +1239,25 @@ def _apply_projection_formulas(final_path: Path) -> None:
     if USE_LLM_SENTIMENT and LAST_SENTIMENT_PATH.exists():
         try:
             data = json.loads(LAST_SENTIMENT_PATH.read_text())
-            sentiment_bump = compute_revenue_growth_bump(data) / 100.0  # bump given in pct points; convert to decimal
-            ev = data.get("evidence_quotes") or data.get("evidence") or []
-            if isinstance(ev, str):
-                sentiment_note = ev
-            elif isinstance(ev, list) and ev:
-                sentiment_note = "; ".join(str(x) for x in ev if x)[:180]
+            sentiment_result = compute_sentiment_result(data)
+            sentiment_bump = sentiment_result["bump_decimal"]
+            ev_list = sentiment_result.get("evidence", [])
+            ev_str = "; ".join(ev_list)[:220] if ev_list else ""
+            outcome = sentiment_result.get("outcome", "error_or_unavailable")
+            label = sentiment_result.get("label", "neutral")
+            if sentiment_result["score"] in {-2, -1, 1, 2}:
+                sentiment_note = f"AI sentiment on management’s revenue outlook: {label} ({sentiment_result['bump_pct']:+.2f} pts)."
+            elif outcome == "neutral_no_info":
+                sentiment_note = "AI sentiment: neutral. No concrete forward-looking revenue or demand commentary detected in the 10-K; no adjustment applied."
+            elif outcome == "neutral_balanced":
+                sentiment_note = "AI sentiment: neutral. Forward-looking revenue commentary includes both positive and negative signals; no net adjustment applied."
+            else:
+                sentiment_note = "AI sentiment: unavailable due to model/parsing error; base revenue growth assumption used."
+            if ev_str:
+                sentiment_note = f"{sentiment_note} Evidence: {ev_str}"
         except Exception as e:
             print(f"[WARN] Could not read sentiment: {e}")
+            sentiment_note = "AI sentiment: unavailable due to model/parsing error; base revenue growth assumption used."
 
     if sentiment_bump and ASSUMP.get("rev"):
         rev_cell = ws[ASSUMP["rev"]]
@@ -1215,10 +1267,10 @@ def _apply_projection_formulas(final_path: Path) -> None:
         except Exception:
             rev_cell.value = f"({rev_cell.value})+({sentiment_bump})"
         rev_cell.number_format = "0.0%;(0.0%)"
-        # Drop a small note to the right of the assumptions block (S5/S6)
-        ws.cell(row=5, column=19, value=f"Sentiment adj: {sentiment_bump:+.2%}")
-        if sentiment_note:
-            ws.cell(row=6, column=19, value=f"Evidence: {sentiment_note}")
+    # Drop a small note to the right of the assumptions block (S5/S6)
+    if sentiment_note:
+        ws.cell(row=5, column=19, value=sentiment_note[:200])
+        ws.cell(row=6, column=19, value="")  # clear old slot
 
     def _coord(r, c):
         return f"{get_column_letter(c)}{r}"
