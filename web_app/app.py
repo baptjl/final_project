@@ -32,7 +32,6 @@ USE_LLM_DEFAULT = os.environ.get('USE_LLM_DEFAULT', '0').lower() in {'1', 'true'
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB uploads
 app.secret_key = os.environ.get('WEB_APP_SECRET', 'dev-secret')
-init_db()
 
 
 def allowed_file(filename):
@@ -95,6 +94,10 @@ def init_db():
     conn.commit()
     conn.close()
 
+
+@app.before_first_request
+def setup_db():
+    init_db()
 
 def login_required(f):
     @wraps(f)
