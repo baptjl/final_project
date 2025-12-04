@@ -269,12 +269,8 @@
 
         <div class="section">
           <h3>Step 3 · Options</h3>
-          <div class="checkbox">
-            <input type="hidden" name="use_llm_flag" value="0" />
-            <div class="toggle" id="llmToggle" aria-label="Use LLM label mapping"></div>
-            <input type="checkbox" id="useLLM" name="use_llm_flag" value="1" {% if use_llm_default %}checked{% endif %} style="display:none;" />
-            <label for="useLLM" style="margin:0;">Use LLM label mapping (OpenAI)</label>
-          </div>
+          <p class="hint" style="margin:0 0 6px 0;">OpenAI label mapping is always enabled for this model.</p>
+          <input type="hidden" name="use_llm_flag" value="1" />
           <div class="checkbox" style="margin-top:10px;">
             <input type="hidden" name="use_external_news" value="0" />
             <div class="toggle" id="extToggle" aria-label="Use external news" data-default-ext="{{ 1 if use_external_default else 0 }}"></div>
@@ -301,7 +297,7 @@
       <div class="pill">Tips</div>
       <ul class="list">
         <li><span class="dot"></span><span>Use a direct 10‑K HTML URL (not PDF). If both URL and file are provided, URL wins.</span></li>
-        <li><span class="dot"></span><span>LLM option: smarter label mapping and sentiment to gently adjust revenue growth.</span></li>
+        <li><span class="dot"></span><span>OpenAI mapping is always enabled for cleaner labels; sentiment gently adjusts revenue growth.</span></li>
         <li><span class="dot"></span><span>Projected years auto-link to assumptions; actuals stay editable.</span></li>
         <li><span class="dot"></span><span>Download triggers automatically when the file is ready.</span></li>
       </ul>
@@ -336,8 +332,6 @@
       const submitBtn = document.getElementById('generateBtn');
       const toast = document.getElementById('toast');
       const errorBanner = document.getElementById('errorBanner');
-      const llmToggle = document.getElementById('llmToggle');
-      const llmCheckbox = document.getElementById('useLLM');
       const statusText = document.getElementById('statusText');
       const funCard = document.getElementById('funCard');
       const funFactText = document.getElementById('funFactText');
@@ -352,12 +346,8 @@
 
       // Apply settings from localStorage
       try {
-        const storedLLM = localStorage.getItem('llm_default');
         const storedCompany = localStorage.getItem('default_company');
         const storedExt = localStorage.getItem('use_external_outlook');
-        if (storedLLM === '1') {
-          llmCheckbox.checked = true;
-        }
         if (storedExt === '1') {
           extCheckbox.checked = true;
         } else if (storedExt === null) {
@@ -368,20 +358,6 @@
           document.getElementById('company').placeholder = storedCompany;
         }
       } catch (e) {}
-
-      // Sync toggle with hidden checkbox
-      function syncToggleFromCheckbox() {
-        if (llmCheckbox.checked) {
-          llmToggle.classList.add('on');
-        } else {
-          llmToggle.classList.remove('on');
-        }
-      }
-      syncToggleFromCheckbox();
-      llmToggle.addEventListener('click', () => {
-        llmCheckbox.checked = !llmCheckbox.checked;
-        syncToggleFromCheckbox();
-      });
 
       function syncExtToggle() {
         if (extCheckbox.checked) extToggle.classList.add('on'); else extToggle.classList.remove('on');

@@ -1,13 +1,15 @@
-from flask import Flask, request, redirect, url_for, send_file, render_template, flash, Response
+from flask import Flask, request, redirect, url_for, send_file, render_template, flash, Response, session
 import os
 import sys
 import subprocess
 import uuid
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 from functools import wraps
 from dotenv import load_dotenv
 import requests
+import sqlite3
 
 # Load environment variables from .env if present
 load_dotenv()
@@ -27,6 +29,7 @@ USE_LLM_DEFAULT = os.environ.get('USE_LLM_DEFAULT', '0').lower() in {'1', 'true'
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB uploads
 app.secret_key = os.environ.get('WEB_APP_SECRET', 'dev-secret')
+init_db()
 
 
 def allowed_file(filename):
@@ -34,33 +37,35 @@ def allowed_file(filename):
     return ext in ALLOWED_EXTENSIONS
 
 
-def check_auth(username: str, password: str) -> bool:
-    """Check username and password against environment variables."""
-    env_user = os.environ.get('WEB_APP_USER')
-    env_pass = os.environ.get('WEB_APP_PASS')
-    if not env_user or not env_pass:
-        # If no credentials are set, allow access (local use)
-        return True
-    return username == env_user and password == env_pass
+def get_db():
+    db_path = os.path.join(os.path.dirname(__file__), "users.db")
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
-def authenticate():
-    """Sends a 401 response that enables basic auth in the browser."""
-    return Response(
-        'Authentication required', 401,
-        {'WWW-Authenticate': 'Basic realm="Login Required"'}
+def init_db():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
     )
+    conn.commit()
+    conn.close()
 
 
-def requires_auth(f):
+def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        # If credentials not configured, allow access
-        if not os.environ.get('WEB_APP_USER'):
-            return f(*args, **kwargs)
-        auth = request.authorization
-        if not auth or not check_auth(auth.username, auth.password):
-            return authenticate()
+        if "user_id" not in session:
+            return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated
 
@@ -70,13 +75,12 @@ def run_pipeline():
     url = request.form.get('url', '').strip()
     file = request.files.get('file')
     company = request.form.get('company', '').strip()
-    use_llm_flags = request.form.getlist('use_llm_flag')
+    use_llm_flag_raw = request.form.get('use_llm_flag')
     use_external_news_flag = request.form.get("use_external_news")
-    use_llm = None
-    if use_llm_flags:
-        use_llm = '1' in use_llm_flags
+    if use_llm_flag_raw is None:
+        use_llm = True  # safe default: always use OpenAI mapping
     else:
-        use_llm = USE_LLM_DEFAULT
+        use_llm = (use_llm_flag_raw == '1')
 
     if not company:
         return None, None, None, "Please provide a company name"
@@ -159,32 +163,32 @@ def run_pipeline():
 
 
 @app.route('/', methods=['GET'])
-@requires_auth
+@login_required
 def home():
     return render_template('home.html')
 
 
 @app.route('/app', methods=['GET'])
-@requires_auth
+@login_required
 def app_page():
     use_external_default = os.environ.get("USE_EXTERNAL_OUTLOOK", "0").lower() in {"1", "true", "yes", "on"}
     return render_template('app.html', use_llm_default=USE_LLM_DEFAULT, use_external_default=use_external_default)
 
 
 @app.route('/help', methods=['GET'])
-@requires_auth
+@login_required
 def help_page():
     return render_template('help.html')
 
 
 @app.route('/settings', methods=['GET'])
-@requires_auth
+@login_required
 def settings_page():
     return render_template('settings.html', use_llm_default=USE_LLM_DEFAULT)
 
 
 @app.route('/generate', methods=['POST'])
-@requires_auth
+@login_required
 def generate():
     result, stdout, stderr, err = run_pipeline()
     if err:
@@ -211,6 +215,57 @@ def download(filename):
         flash('File not found')
         return redirect(url_for('app_page'))
     return send_file(fpath, as_attachment=True, download_name=filename)
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '')
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT id, email, password_hash FROM users WHERE email = ?", (email,))
+        row = cur.fetchone()
+        conn.close()
+        if row and check_password_hash(row["password_hash"], password):
+            session["user_id"] = row["id"]
+            session["email"] = row["email"]
+            return redirect(url_for('home'))
+        flash("Invalid email/password")
+    return render_template('login.html')
+
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '')
+        confirm = request.form.get('confirm_password', '')
+        if not email or '@' not in email:
+            flash("Please enter a valid email.")
+            return render_template('signup.html')
+        if password != confirm:
+            flash("Passwords do not match.")
+            return render_template('signup.html')
+        pw_hash = generate_password_hash(password)
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute("INSERT INTO users (email, password_hash) VALUES (?, ?)", (email, pw_hash))
+            conn.commit()
+            conn.close()
+            return redirect(url_for('login'))
+        except sqlite3.IntegrityError:
+            flash("That email is already registered.")
+        except Exception:
+            flash("Could not create account. Please try again.")
+    return render_template('signup.html')
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
 
 
 if __name__ == '__main__':

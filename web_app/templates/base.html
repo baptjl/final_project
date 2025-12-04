@@ -112,6 +112,9 @@
         <a href="{{ url_for('app_page') }}" class="{% if request.path.startswith('/app') %}active{% endif %}">App</a>
         <a href="{{ url_for('help_page') }}" class="{% if request.path.startswith('/help') %}active{% endif %}">Help</a>
         <a href="{{ url_for('settings_page') }}" class="{% if request.path.startswith('/settings') %}active{% endif %}">Settings</a>
+        {% if session.get('user_id') %}
+        <a href="{{ url_for('logout') }}">Logout</a>
+        {% endif %}
       </div>
     </div>
   </nav>
