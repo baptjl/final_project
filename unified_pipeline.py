@@ -1351,7 +1351,7 @@ def _apply_projection_formulas(final_path: Path) -> None:
             if external_requested and external_used:
                 ext_text = "External outlook data from recent news was included."
             elif external_requested and not external_used:
-                ext_text = "User requested external outlook data, but external news was unavailable (missing key or API error); only 10-K was used."
+                ext_text = "User requested external outlook data, but external news was unavailable or yielded no relevant snippets; only 10-K was used."
             else:
                 ext_text = "External news was not used (per-run option disabled)."
             if score in {-2, -1, 1, 2}:

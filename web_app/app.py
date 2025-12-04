@@ -114,11 +114,16 @@ def run_pipeline():
     file = request.files.get('file')
     company = request.form.get('company', '').strip()
     use_llm_flag_raw = request.form.get('use_llm_flag')
-    use_external_news_flag = request.form.get("use_external_news")
+    use_external_news_raw = request.form.get("use_external_news")
     if use_llm_flag_raw is None:
         use_llm = True  # safe default: always use OpenAI mapping
     else:
         use_llm = (use_llm_flag_raw == '1')
+    # Debug incoming form payload
+    try:
+        app.logger.info("request.form: %s", dict(request.form))
+    except Exception:
+        pass
 
     if not company:
         return None, None, None, "Please provide a company name"
@@ -164,13 +169,20 @@ def run_pipeline():
     # Build environment for subprocess with per-run external news flag
     env = os.environ.copy()
     env_default_ext = env.get("USE_EXTERNAL_OUTLOOK", "0").lower() in {"1", "true", "yes", "on"}
-    ui_flag = use_external_news_flag == "1"
-    if use_external_news_flag is not None:
-        env["USE_EXTERNAL_OUTLOOK"] = "1" if ui_flag else "0"
+    has_ui_flag = use_external_news_raw is not None
+    ui_flag = use_external_news_raw == "1"
+    if has_ui_flag:
+        use_external_outlook = ui_flag  # per-run override
     else:
-        env["USE_EXTERNAL_OUTLOOK"] = "1" if env_default_ext else "0"
-    if env.get("USE_EXTERNAL_OUTLOOK") != "1":
-        env["USE_EXTERNAL_OUTLOOK"] = "0"
+        use_external_outlook = env_default_ext
+    env["USE_EXTERNAL_OUTLOOK"] = "1" if use_external_outlook else "0"
+    try:
+        app.logger.info(
+            "use_external_outlook derived: %s (raw=%s, env_default=%s)",
+            use_external_outlook, use_external_news_raw, env_default_ext
+        )
+    except Exception:
+        pass
 
     # Build command: use same Python interpreter running the app (respects venv)
     python_exec = sys.executable
@@ -270,6 +282,7 @@ def generate():
         combined_score = None
         bump_pct = None
         external_used = 0
+        external_requested = 0
         ai_label = None
         ai_note = None
         if os.path.exists(sentiment_file):
@@ -282,6 +295,7 @@ def generate():
                 ev = raw_sent.get("summary") or raw_sent.get("justification_short")
                 ai_note = ev
             external_used = 1 if sent.get("external_used") else 0
+            external_requested = 1 if sent.get("external_requested") else 0
             # bump maybe in AI sheet but store from sentiment result mapping if present
         # attempt to read base growth from final workbook (Q5)
         base_growth = None
@@ -302,6 +316,13 @@ def generate():
                 growth_bump = s["B4"].value
         except Exception:
             growth_bump = None
+        try:
+            app.logger.info(
+                "sentiment summary: external_requested=%s external_used=%s ai_note=%s",
+                external_requested, external_used, ai_note
+            )
+        except Exception:
+            pass
         conn = get_db()
         cur = conn.cursor()
         cur.execute(

@@ -272,7 +272,6 @@
           <p class="hint" style="margin:0 0 6px 0;">OpenAI label mapping is always enabled for this model.</p>
           <input type="hidden" name="use_llm_flag" value="1" />
           <div class="checkbox" style="margin-top:10px;">
-            <input type="hidden" name="use_external_news" value="0" />
             <div class="toggle" id="extToggle" aria-label="Use external news" data-default-ext="{{ 1 if use_external_default else 0 }}"></div>
             <input type="checkbox" id="useExternal" name="use_external_news" value="1" {% if use_external_default %}checked{% endif %} style="display:none;" />
             <label for="useExternal" style="margin:0;">Use external news to enhance revenue outlook</label>
@@ -428,6 +427,10 @@
 
         const fd = new FormData(form);
         fd.append('ajax', '1');
+        // Temporary debug: log form payload to verify external news flag
+        for (const [key, value] of fd.entries()) {
+          console.log("FormData:", key, value);
+        }
 
         try {
           const resp = await fetch(form.action || '/generate', { method: 'POST', body: fd, credentials: 'same-origin' });
