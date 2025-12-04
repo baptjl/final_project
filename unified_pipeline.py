@@ -15,6 +15,8 @@ import json
 from pathlib import Path
 from typing import Optional, Dict, List
 import subprocess
+import requests
+from datetime import datetime, timedelta
 
 # Add project paths to sys.path
 sys.path.insert(0, str(Path.cwd()))
@@ -49,6 +51,7 @@ LAST_META_PATH = BASE_DIR / "automodel/data/interim/last_meta.json"
 LAST_SENTIMENT_PATH = BASE_DIR / "automodel/data/interim/last_sentiment.json"
 USE_LLM_EXTRACTION = os.environ.get("USE_LLM_EXTRACTION", "0").lower() in {"1", "true", "yes", "on"}
 USE_LLM_SENTIMENT = os.environ.get("USE_LLM_SENTIMENT", "0").lower() in {"1", "true", "yes", "on"}
+USE_EXTERNAL_OUTLOOK = os.environ.get("USE_EXTERNAL_OUTLOOK", "0").lower() in {"1", "true", "yes", "on"}
 
 
 def _heuristic_score(df: pd.DataFrame) -> int:
@@ -191,6 +194,62 @@ def _llm_detect_unit(raw_html: str) -> Optional[str]:
     return None
 
 
+def fetch_external_outlook_snippets(company_name: str) -> List[str]:
+    """
+    Fetch recent external news snippets about the company outlook (optional).
+    Uses NewsAPI.org if USE_EXTERNAL_OUTLOOK is enabled and NEWSAPI_KEY is set.
+    Returns up to 5 short snippets; on failure returns [] without crashing.
+    """
+    if not USE_EXTERNAL_OUTLOOK:
+        return []
+    api_key = os.environ.get("NEWSAPI_KEY")
+    if not api_key:
+        print("[WARN] USE_EXTERNAL_OUTLOOK enabled but NEWSAPI_KEY missing; skipping external fetch.")
+        return []
+    try:
+        url = "https://newsapi.org/v2/everything"
+        frm = (datetime.utcnow() - timedelta(days=90)).strftime("%Y-%m-%d")
+        params = {
+            "q": company_name,
+            "language": "en",
+            "sortBy": "publishedAt",
+            "pageSize": 10,
+            "from": frm,
+            "apiKey": api_key,
+        }
+        resp = requests.get(url, params=params, timeout=5)
+        if resp.status_code != 200:
+            print(f"[WARN] NewsAPI returned status {resp.status_code}: {resp.text}")
+            return []
+        data = resp.json()
+        articles = data.get("articles", [])
+        snippets = []
+        seen_titles = set()
+        keywords = ("guidance", "outlook", "forecast", "revenue", "sales", "demand", "growth", "decline")
+        for art in articles:
+            title = art.get("title") or ""
+            desc = art.get("description") or ""
+            content = (art.get("content") or "")[:400]
+            if title.lower() in seen_titles:
+                continue
+            if not title and not desc:
+                continue
+            tdesc = title + " " + desc
+            if not any(k in tdesc.lower() for k in keywords):
+                continue
+            text = " ".join([title, desc, content]).strip()
+            if not text:
+                continue
+            seen_titles.add(title.lower())
+            snippets.append(text[:500])
+            if len(snippets) >= 5:
+                break
+        return snippets
+    except Exception as e:
+        print(f"[WARN] External outlook fetch failed: {e}")
+        return []
+
+
 def _extract_outlook_snippet(raw_html: str, max_len: int = 8000, window: int = 800) -> str:
     """
     Grab lightweight snippets likely to contain outlook/forward-looking commentary.
@@ -218,41 +277,46 @@ def _extract_outlook_snippet(raw_html: str, max_len: int = 8000, window: int = 8
     return snippet[:max_len]
 
 
-def _llm_sentiment_score(raw_html: str) -> Optional[dict]:
+def _llm_sentiment_score(raw_html: str, external_snippets: List[str]) -> Optional[dict]:
     """
     Ask LLM for forward-looking revenue sentiment. Returns dict with score, label, evidence_quotes, justification_short.
     Note: today we only analyze the 10-K text passed in. If we later want to incorporate external web sources
     (news, call transcripts, etc.), add a pre-step that fetches/concatenates that text before this call.
     """
     snippet = _extract_outlook_snippet(raw_html)
+    news_block = "\n\n".join(external_snippets) if external_snippets else "No external news snippets provided."
     prompt = (
-        "You are an equity research analyst. Given excerpts from a company’s 10-K, evaluate management’s forward-looking tone "
-        "about REVENUE GROWTH over the next 2–3 years.\n\n"
-        "Rules:\n"
-        "1) Only consider statements about future revenue, sales, demand, volume, bookings, or growth/decline.\n"
-        "2) Ignore generic IR boilerplate (e.g., shareholder value, EPS growth, mission statements) without concrete outlook.\n"
-        "3) Downweight legal safe-harbor language unless it clearly signals worsening conditions.\n"
-        "4) Focus on sentences containing 'expect', 'anticipate', 'forecast', 'guidance', 'we believe revenue will', or directional/ numeric info like 'high single-digit growth', 'decline', etc.\n\n"
-        "Scoring:\n"
-        "-2 = clearly negative / explicit revenue decline outlook\n"
-        "-1 = mildly negative / cautious (flat to slight decline, significant headwinds)\n"
-        " 0 = neutral / mixed / no real information\n"
-        "+1 = mildly positive (modest revenue growth expected)\n"
-        "+2 = clearly positive with explicit strong growth expectations\n\n"
-        "If there is no concrete forward-looking revenue/demand commentary, score MUST be 0.\n\n"
+        "You are an equity research analyst. You will evaluate a company’s forward-looking tone specifically about REVENUE GROWTH over the next 2–3 years.\n\n"
+        "You are given:\n"
+        "Part A: Excerpts from the company’s 10-K filing (management discussion & outlook).\n"
+        "Part B: Recent external news snippets about the company’s outlook (financial news).\n\n"
+        "Only consider statements about future revenue, sales, demand, volume, bookings, or growth/decline.\n"
+        "Ignore generic boilerplate like 'We seek to deliver consistent EPS growth' or 'shareholder value' without concrete outlook.\n"
+        "Downweight legal safe-harbor language unless it clearly signals worsening conditions.\n"
+        "For Part A (10-K), focus on explicit forward-looking language (expect, anticipate, forecast, guidance, numeric/directional info).\n"
+        "For Part B (news), focus on credible references to management guidance, demand trends, or analyst consensus on revenue growth; ignore sensational headlines.\n\n"
+        "Tasks:\n"
+        "- Rate the forward-looking tone about revenue growth on a scale from -2 to +2 separately for Part A (tenk) and Part B (news), and provide a combined overall score weighted ~70% tenk / 30% news.\n"
+        "- -2 clearly negative, -1 mildly negative/cautious, 0 neutral/mixed/no info, +1 mildly positive, +2 clearly positive.\n"
+        "- If a source has no concrete forward-looking info, its score MUST be 0.\n\n"
         "Return ONLY valid JSON:\n"
         "{\n"
-        "  \"score\": -2 | -1 | 0 | 1 | 2,\n"
-        "  \"label\": \"strongly_negative\" | \"mildly_negative\" | \"neutral\" | \"mildly_positive\" | \"strongly_positive\",\n"
-        "  \"evidence_quotes\": [\"short quote 1\", \"short quote 2\"],\n"
-        "  \"justification_short\": \"one or two sentences summarizing why\"\n"
+        "  \"tenk_score\": -2 | -1 | 0 | 1 | 2,\n"
+        "  \"news_score\": -2 | -1 | 0 | 1 | 2,\n"
+        "  \"combined_score\": -2 | -1 | 0 | 1 | 2,\n"
+        "  \"tenk_label\": \"strongly_negative\" | \"mildly_negative\" | \"neutral\" | \"mildly_positive\" | \"strongly_positive\",\n"
+        "  \"news_label\": \"strongly_negative\" | \"mildly_negative\" | \"neutral\" | \"mildly_positive\" | \"strongly_positive\",\n"
+        "  \"combined_label\": \"strongly_negative\" | \"mildly_negative\" | \"neutral\" | \"mildly_positive\" | \"strongly_positive\",\n"
+        "  \"tenk_evidence\": [\"short quote 1 from 10-K\", \"short quote 2 from 10-K\"],\n"
+        "  \"news_evidence\": [\"short quote 1 from external news\", \"short quote 2 from external news\"],\n"
+        "  \"summary\": \"2–3 sentences explaining the combined view on future revenue growth.\"\n"
         "}"
     )
     try:
         resp = _llm_chat(
             [
-                {"role": "system", "content": "You score forward revenue outlook from filings."},
-                {"role": "user", "content": prompt + "\nSNIPPET:\n" + snippet},
+                {"role": "system", "content": "You score forward revenue outlook from filings and recent news."},
+                {"role": "user", "content": prompt + "\n\nPART A (10-K excerpt):\n" + snippet + "\n\nPART B (external news snippets):\n" + news_block},
             ],
             temperature=0.0,
         )
@@ -286,26 +350,37 @@ def compute_sentiment_result(sentiment: Optional[dict]) -> dict:
         "outcome": "error_or_unavailable",
         "label": "unknown",
         "evidence": [],
+        "tenk_evidence": [],
+        "news_evidence": [],
         "justification": "",
         "score": 0,
+        "combined_score": 0,
     }
     try:
         if not sentiment or not isinstance(sentiment, dict):
             return result
-        score = sentiment.get("score", 0)
+        score = sentiment.get("combined_score", sentiment.get("score", 0))
         try:
             score = int(score)
         except Exception:
             score = 0
         if score not in {-2, -1, 0, 1, 2}:
             score = 0
-        label = sentiment.get("label") or "unknown"
-        evidence = sentiment.get("evidence_quotes") or sentiment.get("evidence") or []
-        if isinstance(evidence, str):
-            evidence = [evidence]
-        if not isinstance(evidence, list):
-            evidence = []
-        justification = sentiment.get("justification_short") or ""
+        label = sentiment.get("combined_label") or sentiment.get("label") or "unknown"
+        tenk_ev = sentiment.get("tenk_evidence") or []
+        news_ev = sentiment.get("news_evidence") or []
+        fallback_ev = sentiment.get("evidence_quotes") or sentiment.get("evidence") or []
+        if isinstance(tenk_ev, str):
+            tenk_ev = [tenk_ev]
+        if isinstance(news_ev, str):
+            news_ev = [news_ev]
+        if isinstance(fallback_ev, str):
+            fallback_ev = [fallback_ev]
+        evidence = []
+        for src in (tenk_ev, news_ev, fallback_ev):
+            if isinstance(src, list):
+                evidence.extend([q for q in src if isinstance(q, str)])
+        justification = sentiment.get("summary") or sentiment.get("justification_short") or ""
 
         keywords = ("revenue", "sales", "demand", "growth", "decline", "bookings", "volume")
         has_keyword = any(isinstance(q, str) and any(k in q.lower() for k in keywords) for q in evidence)
@@ -336,8 +411,11 @@ def compute_sentiment_result(sentiment: Optional[dict]) -> dict:
             "outcome": outcome,
             "label": label,
             "evidence": [q for q in evidence if isinstance(q, str)],
+            "tenk_evidence": [q for q in tenk_ev if isinstance(q, str)],
+            "news_evidence": [q for q in news_ev if isinstance(q, str)],
             "justification": justification,
             "score": score,
+            "combined_score": score,
         })
         return result
     except Exception as e:
@@ -676,11 +754,22 @@ def step1_extract_from_html(html_path: Path, skip_llm: bool = True) -> Path:
 
     # Optional sentiment scoring (lightweight) for revenue growth adjustment
     if USE_LLM_SENTIMENT and not skip_llm:
-        sentiment = _llm_sentiment_score(raw)
+        external_snips = []
+        if 'company_name_global' in globals():
+            try:
+                external_snips = fetch_external_outlook_snippets(globals()['company_name_global'])
+            except Exception as e:
+                print(f"[WARN] External fetch skipped: {e}")
+        sentiment = _llm_sentiment_score(raw, external_snips)
         if sentiment:
             try:
+                payload = {
+                    "raw": sentiment,
+                    "external_used": bool(external_snips),
+                    "external_snippets": external_snips,
+                }
                 LAST_SENTIMENT_PATH.parent.mkdir(parents=True, exist_ok=True)
-                LAST_SENTIMENT_PATH.write_text(json.dumps(sentiment, indent=2))
+                LAST_SENTIMENT_PATH.write_text(json.dumps(payload, indent=2))
             except Exception as e:
                 print(f"[WARN] Could not save sentiment: {e}")
     
@@ -1236,28 +1325,43 @@ def _apply_projection_formulas(final_path: Path) -> None:
     # Optional sentiment bump to revenue growth assumption (Q5)
     sentiment_bump = 0.0
     sentiment_note = ""
+    sentiment_result = None
+    external_used = False
+    raw_sentiment = None
     if USE_LLM_SENTIMENT and LAST_SENTIMENT_PATH.exists():
         try:
             data = json.loads(LAST_SENTIMENT_PATH.read_text())
-            sentiment_result = compute_sentiment_result(data)
+            if isinstance(data, dict) and "raw" in data:
+                raw_sentiment = data.get("raw")
+                external_used = bool(data.get("external_used"))
+            else:
+                raw_sentiment = data
+                external_used = False
+            sentiment_result = compute_sentiment_result(raw_sentiment)
             sentiment_bump = sentiment_result["bump_decimal"]
             ev_list = sentiment_result.get("evidence", [])
             ev_str = "; ".join(ev_list)[:220] if ev_list else ""
             outcome = sentiment_result.get("outcome", "error_or_unavailable")
             label = sentiment_result.get("label", "neutral")
-            if sentiment_result["score"] in {-2, -1, 1, 2}:
-                sentiment_note = f"AI sentiment on management’s revenue outlook: {label} ({sentiment_result['bump_pct']:+.2f} pts)."
+            score = sentiment_result.get("combined_score", sentiment_result.get("score", 0))
+            ext_text = "External outlook data used (NewsAPI)." if external_used else "External outlook data not used."
+            if score in {-2, -1, 1, 2}:
+                sentiment_note = f"AI revenue outlook (10-K + recent news): {label} ({sentiment_result['bump_pct']:+.2f} pts)."
             elif outcome == "neutral_no_info":
-                sentiment_note = "AI sentiment: neutral. No concrete forward-looking revenue or demand commentary detected in the 10-K; no adjustment applied."
+                if external_used:
+                    sentiment_note = "AI sentiment: neutral. 10-K and recent news contain no clear forward-looking revenue or demand guidance; no adjustment applied."
+                else:
+                    sentiment_note = "AI sentiment: neutral. No concrete forward-looking revenue or demand commentary detected in the 10-K; no adjustment applied."
             elif outcome == "neutral_balanced":
-                sentiment_note = "AI sentiment: neutral. Forward-looking revenue commentary includes both positive and negative signals; no net adjustment applied."
+                sentiment_note = "AI sentiment: neutral. Forward-looking revenue commentary across 10-K and recent news includes both positive and negative signals; no net adjustment applied."
             else:
-                sentiment_note = "AI sentiment: unavailable due to model/parsing error; base revenue growth assumption used."
+                sentiment_note = "AI sentiment: unavailable due to model or parsing error; base revenue growth assumption used."
             if ev_str:
                 sentiment_note = f"{sentiment_note} Evidence: {ev_str}"
+            sentiment_note = f"{sentiment_note} {ext_text}"
         except Exception as e:
             print(f"[WARN] Could not read sentiment: {e}")
-            sentiment_note = "AI sentiment: unavailable due to model/parsing error; base revenue growth assumption used."
+            sentiment_note = "AI sentiment: unavailable due to model/parsing error; base revenue growth assumption used. External outlook data not used."
 
     if sentiment_bump and ASSUMP.get("rev"):
         rev_cell = ws[ASSUMP["rev"]]
@@ -1271,6 +1375,34 @@ def _apply_projection_formulas(final_path: Path) -> None:
     if sentiment_note:
         ws.cell(row=5, column=19, value=sentiment_note[:200])
         ws.cell(row=6, column=19, value="")  # clear old slot
+    # Add AI_Sentiment sheet with details
+    try:
+        if "AI_Sentiment" in wb.sheetnames:
+            wb.remove(wb["AI_Sentiment"])
+        s = wb.create_sheet("AI_Sentiment")
+        s["A1"] = "AI Revenue Outlook"
+        base_growth = ws[ASSUMP["rev"]].value if ASSUMP.get("rev") else None
+        s["A2"] = "Base revenue growth assumption"
+        s["B2"] = base_growth
+        s["A3"] = "Combined score"
+        s["B3"] = sentiment_result["combined_score"] if sentiment_result else 0
+        s["A4"] = "Growth bump (pts)"
+        s["B4"] = sentiment_result["bump_pct"] if sentiment_result else 0
+        s["A5"] = "External outlook used?"
+        s["B5"] = "Yes" if external_used else "No"
+        s["A6"] = "Note"
+        s["B6"] = sentiment_note
+        if sentiment_result:
+            tenk_ev = sentiment_result.get("tenk_evidence", [])[:3]
+            news_ev = sentiment_result.get("news_evidence", [])[:3]
+            s["A8"] = "10-K Evidence"
+            for i, q in enumerate(tenk_ev, start=9):
+                s.cell(row=i, column=2, value=q)
+            s["A12"] = "News Evidence"
+            for i, q in enumerate(news_ev, start=13):
+                s.cell(row=i, column=2, value=q)
+    except Exception as e:
+        print(f"[WARN] Could not write AI_Sentiment sheet: {e}")
 
     def _coord(r, c):
         return f"{get_column_letter(c)}{r}"
@@ -1440,6 +1572,7 @@ def main(
     template_path = Path("final-project_finmod-main/Inputs_Historical/Baseline IS.xlsx")
     
     try:
+        globals()['company_name_global'] = company_name
         # Step 1: Extract
         csv_path = step1_extract_from_html(html_path, skip_llm=skip_llm)
         
