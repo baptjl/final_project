@@ -104,6 +104,9 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated
 
+# Alias for any legacy decorator usage
+requires_auth = login_required
+
 
 def run_pipeline():
     # Accept either a direct URL or a posted HTML file.
@@ -331,7 +334,7 @@ def generate():
 
 
 @app.route('/download/<filename>')
-@requires_auth
+@login_required
 def download(filename):
     fpath = os.path.join(OUTPUT_FOLDER, filename)
     if not os.path.exists(fpath):
