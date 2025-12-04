@@ -225,20 +225,18 @@ def fetch_external_outlook_snippets(company_name: str) -> List[str]:
         articles = data.get("articles", [])
         snippets = []
         seen_titles = set()
-        keywords = ("guidance", "outlook", "forecast", "revenue", "sales", "demand", "growth", "decline")
+        company_lower = (company_name or "").lower()
         for art in articles:
             title = art.get("title") or ""
             desc = art.get("description") or ""
             content = (art.get("content") or "")[:400]
             if title.lower() in seen_titles:
                 continue
-            if not title and not desc:
-                continue
-            tdesc = title + " " + desc
-            if not any(k in tdesc.lower() for k in keywords):
-                continue
             text = " ".join([title, desc, content]).strip()
             if not text:
+                continue
+            if company_lower and not (company_lower in title.lower() or company_lower in desc.lower()):
+                # keep a very light relevance check to the company name
                 continue
             seen_titles.add(title.lower())
             snippets.append(text[:500])
