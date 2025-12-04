@@ -13,7 +13,7 @@ import sys
 import re
 import json
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 import subprocess
 import requests
 from datetime import datetime, timedelta
@@ -194,18 +194,19 @@ def _llm_detect_unit(raw_html: str) -> Optional[str]:
     return None
 
 
-def fetch_external_outlook_snippets(company_name: str) -> List[str]:
+def fetch_external_outlook_snippets(company_name: str) -> Tuple[List[str], str]:
     """
     Fetch recent external news snippets about the company outlook (optional).
     Uses NewsAPI.org if USE_EXTERNAL_OUTLOOK is enabled and NEWSAPI_KEY is set.
-    Returns up to 5 short snippets; on failure returns [] without crashing.
+    Returns (snippets, debug_str); on failure returns ([], debug_str) without crashing.
     """
     if not USE_EXTERNAL_OUTLOOK:
-        return []
+        return [], "external disabled"
     api_key = os.environ.get("NEWSAPI_KEY")
     if not api_key:
-        print("[WARN] USE_EXTERNAL_OUTLOOK enabled but NEWSAPI_KEY missing; skipping external fetch.")
-        return []
+        msg = "USE_EXTERNAL_OUTLOOK enabled but NEWSAPI_KEY missing; skipping external fetch."
+        print(f"[WARN] {msg}")
+        return [], msg
     try:
         url = "https://newsapi.org/v2/everything"
         frm = (datetime.utcnow() - timedelta(days=90)).strftime("%Y-%m-%d")
@@ -217,27 +218,17 @@ def fetch_external_outlook_snippets(company_name: str) -> List[str]:
             "from": frm,
             "apiKey": api_key,
         }
-        try:
-            app.logger.info("NewsAPI request: company=%s", company_name)
-        except Exception:
-            pass
+        debug_parts = [f"company={company_name}"]
+        print(f"[INFO] NewsAPI request: company={company_name}")
         resp = requests.get(url, params=params, timeout=5)
-        try:
-            app.logger.info("NewsAPI status: %s", resp.status_code)
-        except Exception:
-            pass
+        print(f"[INFO] NewsAPI status: {resp.status_code}")
         if resp.status_code != 200:
-            try:
-                app.logger.warning("NewsAPI error response: %s", resp.text)
-            except Exception:
-                print(f"[WARN] NewsAPI returned status {resp.status_code}: {resp.text}")
-            return []
+            err_msg = f"NewsAPI error {resp.status_code}: {resp.text}"
+            print(f"[WARN] {err_msg}")
+            return [], err_msg[:180]
         data = resp.json()
         articles = data.get("articles", [])
-        try:
-            app.logger.info("NewsAPI articles before filtering: %d", len(articles))
-        except Exception:
-            pass
+        print(f"[INFO] NewsAPI articles before filtering: {len(articles)}")
         snippets = []
         seen_titles = set()
         company_lower = (company_name or "").lower()
@@ -257,18 +248,13 @@ def fetch_external_outlook_snippets(company_name: str) -> List[str]:
             snippets.append(text[:500])
             if len(snippets) >= 5:
                 break
-        try:
-            app.logger.info(
-                "external_outlook_snippets: company=%s, snippets_after_filter=%d",
-                company_name,
-                len(snippets)
-            )
-        except Exception:
-            pass
-        return snippets
+        debug_str = f"ok; articles={len(articles)}; snippets={len(snippets)}"
+        print(f"[INFO] external_outlook_snippets: company={company_name}, snippets_after_filter={len(snippets)}")
+        return snippets, debug_str
     except Exception as e:
-        print(f"[WARN] External outlook fetch failed: {e}")
-        return []
+        msg = f"External outlook fetch failed: {e}"
+        print(f"[WARN] {msg}")
+        return [], msg[:180]
 
 
 def _extract_outlook_snippet(raw_html: str, max_len: int = 8000, window: int = 800) -> str:
@@ -776,18 +762,16 @@ def step1_extract_from_html(html_path: Path, skip_llm: bool = True) -> Path:
     # Optional sentiment scoring (lightweight) for revenue growth adjustment
     if USE_LLM_SENTIMENT and not skip_llm:
         external_snips = []
+        newsapi_debug = ""
         if 'company_name_global' in globals():
             try:
-                external_snips = fetch_external_outlook_snippets(globals()['company_name_global'])
+                external_snips, newsapi_debug = fetch_external_outlook_snippets(globals()['company_name_global'])
             except Exception as e:
-                print(f"[WARN] External fetch skipped: {e}")
+                newsapi_debug = f"External fetch skipped: {e}"
+                print(f"[WARN] {newsapi_debug}")
+        external_used = len(external_snips) > 0
         try:
-            app.logger.info(
-                "sentiment debug: company=%s, external_outlook_requested=%s, snippet_count=%d",
-                globals().get('company_name_global'),
-                USE_EXTERNAL_OUTLOOK,
-                len(external_snips)
-            )
+            print(f"[INFO] sentiment debug: company={globals().get('company_name_global')}, external_outlook_requested={USE_EXTERNAL_OUTLOOK}, snippet_count={len(external_snips)}, external_used={external_used}, debug={newsapi_debug}")
         except Exception:
             pass
         sentiment = _llm_sentiment_score(raw, external_snips)
@@ -795,9 +779,10 @@ def step1_extract_from_html(html_path: Path, skip_llm: bool = True) -> Path:
             try:
                 payload = {
                     "raw": sentiment,
-                    "external_used": bool(external_snips),
+                    "external_used": external_used,
                     "external_requested": USE_EXTERNAL_OUTLOOK,
                     "external_snippets": external_snips,
+                    "newsapi_debug": newsapi_debug,
                 }
                 LAST_SENTIMENT_PATH.parent.mkdir(parents=True, exist_ok=True)
                 LAST_SENTIMENT_PATH.write_text(json.dumps(payload, indent=2))
@@ -1359,6 +1344,7 @@ def _apply_projection_formulas(final_path: Path) -> None:
     sentiment_result = None
     external_used = False
     external_requested = False
+    newsapi_debug = ""
     raw_sentiment = None
     if USE_LLM_SENTIMENT and LAST_SENTIMENT_PATH.exists():
         try:
@@ -1367,10 +1353,12 @@ def _apply_projection_formulas(final_path: Path) -> None:
                 raw_sentiment = data.get("raw")
                 external_used = bool(data.get("external_used"))
                 external_requested = bool(data.get("external_requested"))
+                newsapi_debug = data.get("newsapi_debug", "")
             else:
                 raw_sentiment = data
                 external_used = False
                 external_requested = USE_EXTERNAL_OUTLOOK
+                newsapi_debug = ""
             sentiment_result = compute_sentiment_result(raw_sentiment)
             sentiment_bump = sentiment_result["bump_decimal"]
             ev_list = sentiment_result.get("evidence", [])
@@ -1437,14 +1425,19 @@ def _apply_projection_formulas(final_path: Path) -> None:
         s["B6"] = "Yes" if external_used else "No"
         s["A7"] = "Note"
         s["B7"] = sentiment_note
+        if newsapi_debug:
+            s["A8"] = "NewsAPI debug"
+            s["B8"] = newsapi_debug
         if sentiment_result:
             tenk_ev = sentiment_result.get("tenk_evidence", [])[:3]
             news_ev = sentiment_result.get("news_evidence", [])[:3]
+            start_ev = 10 if newsapi_debug else 9
             s["A9"] = "10-K Evidence"
-            for i, q in enumerate(tenk_ev, start=10):
+            for i, q in enumerate(tenk_ev, start=start_ev):
                 s.cell(row=i, column=2, value=q)
-            s["A13"] = "News Evidence"
-            for i, q in enumerate(news_ev, start=14):
+            news_start = start_ev + max(3, len(tenk_ev)) + 1
+            s.cell(row=news_start - 1, column=1, value="News Evidence")
+            for i, q in enumerate(news_ev, start=news_start):
                 s.cell(row=i, column=2, value=q)
     except Exception as e:
         print(f"[WARN] Could not write AI_Sentiment sheet: {e}")

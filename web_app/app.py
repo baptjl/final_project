@@ -13,6 +13,7 @@ import sqlite3
 import secrets
 import smtplib
 from email.message import EmailMessage
+import json
 
 # Load environment variables from .env if present
 load_dotenv()
