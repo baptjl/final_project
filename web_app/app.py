@@ -71,6 +71,7 @@ def run_pipeline():
     file = request.files.get('file')
     company = request.form.get('company', '').strip()
     use_llm_flags = request.form.getlist('use_llm_flag')
+    use_external_news_flag = request.form.get("use_external_news")
     use_llm = None
     if use_llm_flags:
         use_llm = '1' in use_llm_flags
@@ -118,6 +119,16 @@ def run_pipeline():
     final_name = f"final_{unique_suffix}.xlsx"
     mid_path = os.path.join(OUTPUT_FOLDER, mid_name)
     final_path = os.path.join(OUTPUT_FOLDER, final_name)
+    # Build environment for subprocess with per-run external news flag
+    env = os.environ.copy()
+    env_default_ext = env.get("USE_EXTERNAL_OUTLOOK", "0").lower() in {"1", "true", "yes", "on"}
+    ui_flag = use_external_news_flag == "1"
+    if use_external_news_flag is not None:
+        env["USE_EXTERNAL_OUTLOOK"] = "1" if ui_flag else "0"
+    else:
+        env["USE_EXTERNAL_OUTLOOK"] = "1" if env_default_ext else "0"
+    if env.get("USE_EXTERNAL_OUTLOOK") != "1":
+        env["USE_EXTERNAL_OUTLOOK"] = "0"
 
     # Build command: use same Python interpreter running the app (respects venv)
     python_exec = sys.executable
@@ -128,7 +139,7 @@ def run_pipeline():
         cmd.append('--use-llm')
 
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
     except Exception as e:
         return None, None, None, f'Failed to run pipeline: {e}'
 
@@ -156,7 +167,8 @@ def home():
 @app.route('/app', methods=['GET'])
 @requires_auth
 def app_page():
-    return render_template('app.html', use_llm_default=USE_LLM_DEFAULT)
+    use_external_default = os.environ.get("USE_EXTERNAL_OUTLOOK", "0").lower() in {"1", "true", "yes", "on"}
+    return render_template('app.html', use_llm_default=USE_LLM_DEFAULT, use_external_default=use_external_default)
 
 
 @app.route('/help', methods=['GET'])

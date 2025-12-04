@@ -766,6 +766,7 @@ def step1_extract_from_html(html_path: Path, skip_llm: bool = True) -> Path:
                 payload = {
                     "raw": sentiment,
                     "external_used": bool(external_snips),
+                    "external_requested": USE_EXTERNAL_OUTLOOK,
                     "external_snippets": external_snips,
                 }
                 LAST_SENTIMENT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -1327,6 +1328,7 @@ def _apply_projection_formulas(final_path: Path) -> None:
     sentiment_note = ""
     sentiment_result = None
     external_used = False
+    external_requested = False
     raw_sentiment = None
     if USE_LLM_SENTIMENT and LAST_SENTIMENT_PATH.exists():
         try:
@@ -1334,9 +1336,11 @@ def _apply_projection_formulas(final_path: Path) -> None:
             if isinstance(data, dict) and "raw" in data:
                 raw_sentiment = data.get("raw")
                 external_used = bool(data.get("external_used"))
+                external_requested = bool(data.get("external_requested"))
             else:
                 raw_sentiment = data
                 external_used = False
+                external_requested = USE_EXTERNAL_OUTLOOK
             sentiment_result = compute_sentiment_result(raw_sentiment)
             sentiment_bump = sentiment_result["bump_decimal"]
             ev_list = sentiment_result.get("evidence", [])
@@ -1344,7 +1348,12 @@ def _apply_projection_formulas(final_path: Path) -> None:
             outcome = sentiment_result.get("outcome", "error_or_unavailable")
             label = sentiment_result.get("label", "neutral")
             score = sentiment_result.get("combined_score", sentiment_result.get("score", 0))
-            ext_text = "External outlook data used (NewsAPI)." if external_used else "External outlook data not used."
+            if external_requested and external_used:
+                ext_text = "External outlook data from recent news was included."
+            elif external_requested and not external_used:
+                ext_text = "User requested external outlook data, but external news was unavailable (missing key or API error); only 10-K was used."
+            else:
+                ext_text = "External news was not used (per-run option disabled)."
             if score in {-2, -1, 1, 2}:
                 sentiment_note = f"AI revenue outlook (10-K + recent news): {label} ({sentiment_result['bump_pct']:+.2f} pts)."
             elif outcome == "neutral_no_info":
@@ -1388,18 +1397,20 @@ def _apply_projection_formulas(final_path: Path) -> None:
         s["B3"] = sentiment_result["combined_score"] if sentiment_result else 0
         s["A4"] = "Growth bump (pts)"
         s["B4"] = sentiment_result["bump_pct"] if sentiment_result else 0
-        s["A5"] = "External outlook used?"
-        s["B5"] = "Yes" if external_used else "No"
-        s["A6"] = "Note"
-        s["B6"] = sentiment_note
+        s["A5"] = "External outlook requested?"
+        s["B5"] = "Yes" if external_requested else "No"
+        s["A6"] = "External outlook used?"
+        s["B6"] = "Yes" if external_used else "No"
+        s["A7"] = "Note"
+        s["B7"] = sentiment_note
         if sentiment_result:
             tenk_ev = sentiment_result.get("tenk_evidence", [])[:3]
             news_ev = sentiment_result.get("news_evidence", [])[:3]
-            s["A8"] = "10-K Evidence"
-            for i, q in enumerate(tenk_ev, start=9):
+            s["A9"] = "10-K Evidence"
+            for i, q in enumerate(tenk_ev, start=10):
                 s.cell(row=i, column=2, value=q)
-            s["A12"] = "News Evidence"
-            for i, q in enumerate(news_ev, start=13):
+            s["A13"] = "News Evidence"
+            for i, q in enumerate(news_ev, start=14):
                 s.cell(row=i, column=2, value=q)
     except Exception as e:
         print(f"[WARN] Could not write AI_Sentiment sheet: {e}")

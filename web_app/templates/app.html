@@ -276,10 +276,10 @@
             <label for="useLLM" style="margin:0;">Use LLM label mapping (OpenAI)</label>
           </div>
           <div class="checkbox" style="margin-top:10px;">
-            <input type="hidden" name="use_external_outlook" value="0" />
-            <div class="toggle" id="extToggle" aria-label="Use external news"></div>
-            <input type="checkbox" id="useExternal" name="use_external_outlook" value="1" style="display:none;" />
-            <label for="useExternal" style="margin:0;">Use external news to enhance revenue outlook prediction</label>
+            <input type="hidden" name="use_external_news" value="0" />
+            <div class="toggle" id="extToggle" aria-label="Use external news" data-default-ext="{{ 1 if use_external_default else 0 }}"></div>
+            <input type="checkbox" id="useExternal" name="use_external_news" value="1" {% if use_external_default %}checked{% endif %} style="display:none;" />
+            <label for="useExternal" style="margin:0;">Use external news to enhance revenue outlook</label>
           </div>
         </div>
 
@@ -360,6 +360,9 @@
         }
         if (storedExt === '1') {
           extCheckbox.checked = true;
+        } else if (storedExt === null) {
+          const defExt = extToggle.getAttribute('data-default-ext') === '1';
+          extCheckbox.checked = defExt;
         }
         if (storedCompany) {
           document.getElementById('company').placeholder = storedCompany;
