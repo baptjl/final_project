@@ -217,12 +217,27 @@ def fetch_external_outlook_snippets(company_name: str) -> List[str]:
             "from": frm,
             "apiKey": api_key,
         }
+        try:
+            app.logger.info("NewsAPI request: company=%s", company_name)
+        except Exception:
+            pass
         resp = requests.get(url, params=params, timeout=5)
+        try:
+            app.logger.info("NewsAPI status: %s", resp.status_code)
+        except Exception:
+            pass
         if resp.status_code != 200:
-            print(f"[WARN] NewsAPI returned status {resp.status_code}: {resp.text}")
+            try:
+                app.logger.warning("NewsAPI error response: %s", resp.text)
+            except Exception:
+                print(f"[WARN] NewsAPI returned status {resp.status_code}: {resp.text}")
             return []
         data = resp.json()
         articles = data.get("articles", [])
+        try:
+            app.logger.info("NewsAPI articles before filtering: %d", len(articles))
+        except Exception:
+            pass
         snippets = []
         seen_titles = set()
         company_lower = (company_name or "").lower()
@@ -242,6 +257,14 @@ def fetch_external_outlook_snippets(company_name: str) -> List[str]:
             snippets.append(text[:500])
             if len(snippets) >= 5:
                 break
+        try:
+            app.logger.info(
+                "external_outlook_snippets: company=%s, snippets_after_filter=%d",
+                company_name,
+                len(snippets)
+            )
+        except Exception:
+            pass
         return snippets
     except Exception as e:
         print(f"[WARN] External outlook fetch failed: {e}")
@@ -758,6 +781,15 @@ def step1_extract_from_html(html_path: Path, skip_llm: bool = True) -> Path:
                 external_snips = fetch_external_outlook_snippets(globals()['company_name_global'])
             except Exception as e:
                 print(f"[WARN] External fetch skipped: {e}")
+        try:
+            app.logger.info(
+                "sentiment debug: company=%s, external_outlook_requested=%s, snippet_count=%d",
+                globals().get('company_name_global'),
+                USE_EXTERNAL_OUTLOOK,
+                len(external_snips)
+            )
+        except Exception:
+            pass
         sentiment = _llm_sentiment_score(raw, external_snips)
         if sentiment:
             try:
@@ -1346,6 +1378,10 @@ def _apply_projection_formulas(final_path: Path) -> None:
             outcome = sentiment_result.get("outcome", "error_or_unavailable")
             label = sentiment_result.get("label", "neutral")
             score = sentiment_result.get("combined_score", sentiment_result.get("score", 0))
+            try:
+                app.logger.info("sentiment debug: external_used=%s", external_used)
+            except Exception:
+                pass
             if external_requested and external_used:
                 ext_text = "External outlook data from recent news was included."
             elif external_requested and not external_used:
