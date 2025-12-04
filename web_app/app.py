@@ -5,11 +5,14 @@ import subprocess
 import uuid
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 from dotenv import load_dotenv
 import requests
 import sqlite3
+import secrets
+import smtplib
+from email.message import EmailMessage
 
 # Load environment variables from .env if present
 load_dotenv()
@@ -54,6 +57,38 @@ def init_db():
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+        )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            used INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            company_name TEXT,
+            source_type TEXT,
+            url_used TEXT,
+            base_growth REAL,
+            combined_score INTEGER,
+            growth_bump REAL,
+            external_used INTEGER,
+            ai_sentiment_label TEXT,
+            ai_sentiment_note TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(id)
         )
         """
     )
@@ -159,7 +194,13 @@ def run_pipeline():
     if not os.path.exists(final_path) or os.path.getsize(final_path) == 0:
         return None, stdout, stderr, "Final file not found after processing."
 
-    return {"final_path": final_path, "final_download_name": final_download_name}, stdout, stderr, None
+    return {
+        "final_path": final_path,
+        "final_download_name": final_download_name,
+        "company": company,
+        "url_used": url if url else None,
+        "source_type": "url" if url else "file"
+    }, stdout, stderr, None
 
 
 @app.route('/', methods=['GET'])
@@ -187,6 +228,24 @@ def settings_page():
     return render_template('settings.html', use_llm_default=USE_LLM_DEFAULT)
 
 
+@app.route('/dashboard', methods=['GET'])
+@login_required
+def dashboard():
+    runs = []
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT created_at, company_name, source_type, url_used, base_growth, combined_score, growth_bump, external_used, ai_sentiment_label FROM runs WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
+            (session.get("user_id"),)
+        )
+        runs = cur.fetchall()
+        conn.close()
+    except Exception as e:
+        print(f"[WARN] Could not load runs: {e}")
+    return render_template('dashboard.html', runs=runs)
+
+
 @app.route('/generate', methods=['POST'])
 @login_required
 def generate():
@@ -200,6 +259,70 @@ def generate():
 
     final_path = result["final_path"]
     final_download_name = result["final_download_name"]
+
+    # Try to log run
+    try:
+        # Pull sentiment metadata if available
+        sentiment_file = os.path.abspath(os.path.join(BASE_DIR, "automodel/data/interim/last_sentiment.json"))
+        combined_score = None
+        bump_pct = None
+        external_used = 0
+        ai_label = None
+        ai_note = None
+        if os.path.exists(sentiment_file):
+            with open(sentiment_file, "r") as fh:
+                sent = json.load(fh)
+            raw_sent = sent.get("raw", sent)
+            if isinstance(raw_sent, dict):
+                combined_score = raw_sent.get("combined_score") if raw_sent.get("combined_score") is not None else raw_sent.get("score")
+                ai_label = raw_sent.get("combined_label") or raw_sent.get("label")
+                ev = raw_sent.get("summary") or raw_sent.get("justification_short")
+                ai_note = ev
+            external_used = 1 if sent.get("external_used") else 0
+            # bump maybe in AI sheet but store from sentiment result mapping if present
+        # attempt to read base growth from final workbook (Q5)
+        base_growth = None
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(final_path, data_only=True)
+            ws = wb.active
+            base_growth = ws["Q5"].value
+        except Exception:
+            base_growth = None
+        growth_bump = None
+        try:
+            # we wrote bump pct to AI_Sentiment sheet; attempt read
+            import openpyxl
+            wb2 = openpyxl.load_workbook(final_path, data_only=True)
+            if "AI_Sentiment" in wb2.sheetnames:
+                s = wb2["AI_Sentiment"]
+                growth_bump = s["B4"].value
+        except Exception:
+            growth_bump = None
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO runs (user_id, company_name, source_type, url_used, base_growth, combined_score, growth_bump, external_used, ai_sentiment_label, ai_sentiment_note)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session.get("user_id"),
+                result.get("company"),
+                result.get("source_type"),
+                result.get("url_used"),
+                base_growth,
+                combined_score,
+                growth_bump,
+                external_used,
+                ai_label,
+                (ai_note or "")[:500]
+            )
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[WARN] Could not log run: {e}")
 
     if request.form.get('ajax') == '1':
         return send_file(final_path, as_attachment=True, download_name=final_download_name)
@@ -215,6 +338,43 @@ def download(filename):
         flash('File not found')
         return redirect(url_for('app_page'))
     return send_file(fpath, as_attachment=True, download_name=filename)
+
+
+def send_reset_email(email: str, reset_link: str):
+    server = os.environ.get("MAIL_SERVER")
+    port = os.environ.get("MAIL_PORT")
+    user = os.environ.get("MAIL_USERNAME")
+    pwd = os.environ.get("MAIL_PASSWORD")
+    sender = os.environ.get("MAIL_SENDER", "no-reply@example.com")
+    use_tls = os.environ.get("MAIL_USE_TLS", "0") == "1"
+    if not server or not port or not user or not pwd:
+        print(f"PASSWORD RESET LINK (email not configured): {reset_link}")
+        return
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = "Password reset instructions"
+        msg["From"] = sender
+        msg["To"] = email
+        msg.set_content(f"You requested a password reset. Click this link to set a new password:\n{reset_link}\nIf you did not request this, you can ignore this email.")
+        with smtplib.SMTP(server, int(port), timeout=10) as smtp:
+            if use_tls:
+                smtp.starttls()
+            smtp.login(user, pwd)
+            smtp.send_message(msg)
+    except Exception as e:
+        print(f"[WARN] Could not send reset email, falling back to log: {e}")
+        print(f"PASSWORD RESET LINK (email fallback): {reset_link}")
+
+
+def cleanup_tokens():
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM password_reset_tokens WHERE expires_at <= ? OR used = 1", (datetime.utcnow(),))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -266,6 +426,78 @@ def signup():
 def logout():
     session.clear()
     return redirect(url_for('login'))
+
+
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    cleanup_tokens()
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.utcnow() + timedelta(hours=1)
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM users WHERE email = ?", (email,))
+            row = cur.fetchone()
+            if row:
+                user_id = row["id"]
+                cur.execute(
+                    "INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)",
+                    (user_id, token, expires_at)
+                )
+                conn.commit()
+                reset_link = url_for('reset_password', token=token, _external=True)
+                send_reset_email(email, reset_link)
+            conn.close()
+        except Exception as e:
+            print(f"[WARN] Forgot-password flow issue: {e}")
+        flash("If an account with that email exists, we have sent password reset instructions.")
+    return render_template('forgot_password.html')
+
+
+@app.route('/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    cleanup_tokens()
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT prt.id, prt.user_id, prt.expires_at, prt.used, u.email FROM password_reset_tokens prt JOIN users u ON prt.user_id = u.id WHERE prt.token = ?",
+        (token,)
+    )
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return render_template('reset_password_invalid.html')
+    expires_at = datetime.fromisoformat(row["expires_at"]) if isinstance(row["expires_at"], str) else row["expires_at"]
+    if row["used"] or expires_at <= datetime.utcnow():
+        conn.close()
+        return render_template('reset_password_invalid.html')
+
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        confirm = request.form.get('confirm_password', '')
+        if not password or password != confirm:
+            flash("Passwords must match and not be empty.")
+            conn.close()
+            return render_template('reset_password.html', token=token)
+        pw_hash = generate_password_hash(password)
+        try:
+            cur.execute("UPDATE users SET password_hash = ? WHERE id = ?", (pw_hash, row["user_id"]))
+            cur.execute("UPDATE password_reset_tokens SET used = 1 WHERE id = ?", (row["id"],))
+            cur.execute("UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND id != ?", (row["user_id"], row["id"]))
+            conn.commit()
+            flash("Your password has been reset. You can now log in.")
+            conn.close()
+            return redirect(url_for('login'))
+        except Exception as e:
+            print(f"[WARN] Password reset failed: {e}")
+            flash("Could not reset password. Please try again.")
+            conn.close()
+            return render_template('reset_password.html', token=token)
+
+    conn.close()
+    return render_template('reset_password.html', token=token)
 
 
 if __name__ == '__main__':

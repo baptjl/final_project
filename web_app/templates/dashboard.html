@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · 10-K AutoModel{% endblock %}
+{% block extra_head %}
+<style>
+  .card {
+    background: rgba(255,255,255,0.92);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  th, td {
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+  }
+  th { color: var(--muted); font-weight: 700; }
+  tr:hover { background: #f8f9ff; }
+  @media (max-width: 760px) {
+    table, thead, tbody, th, td, tr { display: block; }
+    th { display: none; }
+    td { border: none; padding: 8px 0; }
+    td::before { font-weight: 700; display: block; color: var(--muted); }
+    td[data-label]:before { content: attr(data-label); }
+  }
+</style>
+{% endblock %}
+{% block content %}
+  <div class="card">
+    <h2>Run history</h2>
+    {% if runs %}
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Company</th>
+            <th>Source</th>
+            <th>URL</th>
+            <th>Base Growth</th>
+            <th>Combined Score</th>
+            <th>Bump</th>
+            <th>External</th>
+            <th>Sentiment Label</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in runs %}
+          <tr>
+            <td data-label="Date">{{ r['created_at'] }}</td>
+            <td data-label="Company">{{ r['company_name'] or '-' }}</td>
+            <td data-label="Source">{{ r['source_type'] or '-' }}</td>
+            <td data-label="URL">{{ r['url_used'][:50] if r['url_used'] else '' }}</td>
+            <td data-label="Base Growth">{{ r['base_growth'] if r['base_growth'] is not none else '-' }}</td>
+            <td data-label="Combined Score">{{ r['combined_score'] if r['combined_score'] is not none else '-' }}</td>
+            <td data-label="Bump">{{ r['growth_bump'] if r['growth_bump'] is not none else '-' }}</td>
+            <td data-label="External">{{ 'Yes' if r['external_used'] else 'No' }}</td>
+            <td data-label="Label">{{ r['ai_sentiment_label'] or '-' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <p>No runs yet.</p>
+    {% endif %}
+  </div>
+{% endblock %}
