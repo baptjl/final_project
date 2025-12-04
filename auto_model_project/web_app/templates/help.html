@@ -2,16 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Result | 10-K AutoModel</title>
+  <title>Help | 10-K AutoModel</title>
   <style>
     body { margin:0; font-family:"Inter", system-ui, -apple-system, sans-serif; background:#f5f7fb; color:#1f2a3d; }
     header { display:flex; justify-content:space-between; align-items:center; padding:14px 22px; background:#fff; border-bottom:1px solid #e4e8f0; }
     header a { text-decoration:none; color:#1f2a3d; font-weight:700; }
     .container { max-width: 960px; margin: 40px auto; padding: 0 16px; }
     .card { background:#fff; border:1px solid #e4e8f0; border-radius:14px; padding:24px; box-shadow:0 10px 30px rgba(18,38,63,0.08); }
-    pre { background:#f7f9fc; padding:12px; border-radius:12px; overflow:auto; border:1px solid #e4e8f0; }
-    .button { display:inline-block; background:#1b6ef3; color:#fff; padding:10px 12px; border-radius:10px; text-decoration:none; font-weight:700; margin-top:12px; }
-    .muted { color:#5f6b7a; }
+    h1 { margin:0 0 10px; }
+    h3 { margin-top:18px; margin-bottom:6px; }
+    p { color:#5f6b7a; line-height:1.6; }
+    ul { color:#5f6b7a; }
   </style>
 </head>
 <body>
@@ -25,15 +26,27 @@
   </header>
   <div class="container">
     <div class="card">
-      <h1>Pipeline result</h1>
-      <h3>Stdout</h3>
-      <pre>{{ stdout }}</pre>
-      <h3>Stderr</h3>
-      <pre>{{ stderr }}</pre>
-      {% if final_filename %}
-        <a class="button" href="{{ url_for('download', filename=final_filename) }}">Download Final.xlsx</a>
-      {% endif %}
-      <p class="muted"><a href="{{ url_for('index') }}">Back to app</a></p>
+      <h1>Help & Examples</h1>
+      <p>Tips for getting the best results.</p>
+
+      <h3>Which URLs work best?</h3>
+      <p>Provide a direct link to the 10-K HTML filing. If both URL and file are provided, the URL is used.</p>
+
+      <h3>Can I use PDFs?</h3>
+      <p>PDFs are not supported; please use HTML versions of the filing.</p>
+
+      <h3>What does the AI do?</h3>
+      <ul>
+        <li>We automatically map line items to the model using OpenAI.</li>
+        <li>Optional external news can inform revenue outlook if enabled.</li>
+        <li>Sentiment adjustments are capped for conservatism.</li>
+      </ul>
+
+      <h3>Example URLs</h3>
+      <ul>
+        <li>https://example.com/10k/apple-2025.html</li>
+        <li>https://example.com/10k/microsoft-2025.html</li>
+      </ul>
     </div>
   </div>
 </body>
