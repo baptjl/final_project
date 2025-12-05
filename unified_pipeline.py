@@ -209,24 +209,40 @@ def fetch_external_outlook_snippets(company_name: str) -> Tuple[List[str], str]:
         return [], msg
     try:
         url = "https://newsapi.org/v2/everything"
-        frm = (datetime.utcnow() - timedelta(days=90)).strftime("%Y-%m-%d")
         params = {
             "q": company_name,
             "language": "en",
             "sortBy": "publishedAt",
             "pageSize": 10,
-            "from": frm,
             "apiKey": api_key,
         }
         debug_parts = [f"company={company_name}"]
         print(f"[INFO] NewsAPI request: company={company_name}")
         resp = requests.get(url, params=params, timeout=5)
         print(f"[INFO] NewsAPI status: {resp.status_code}")
+        # Retry once without date constraints if 426 / parameterInvalid
+        retry_done = False
+        if resp.status_code == 426:
+            print("[WARN] NewsAPI 426 (parameterInvalid); retrying without 'from'")
+            params.pop("from", None)
+            resp = requests.get(url, params=params, timeout=5)
+            retry_done = True
+            print(f"[INFO] NewsAPI status after retry: {resp.status_code}")
         if resp.status_code != 200:
             err_msg = f"NewsAPI error {resp.status_code}: {resp.text}"
             print(f"[WARN] {err_msg}")
             return [], err_msg[:180]
         data = resp.json()
+        if data.get("code") == "parameterInvalid" and not retry_done:
+            print("[WARN] NewsAPI parameterInvalid; retrying without 'from'")
+            params.pop("from", None)
+            resp = requests.get(url, params=params, timeout=5)
+            print(f"[INFO] NewsAPI status after retry: {resp.status_code}")
+            if resp.status_code != 200:
+                err_msg = f"NewsAPI error {resp.status_code}: {resp.text}"
+                print(f"[WARN] {err_msg}")
+                return [], err_msg[:180]
+            data = resp.json()
         articles = data.get("articles", [])
         print(f"[INFO] NewsAPI articles before filtering: {len(articles)}")
         snippets = []
