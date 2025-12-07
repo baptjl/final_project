@@ -112,6 +112,7 @@ requires_auth = login_required
 def run_pipeline():
     # Accept either a direct URL or a posted HTML file.
     url = request.form.get('url', '').strip()
+    sec_id = request.form.get('sec_id', '').strip()
     file = request.files.get('file')
     company = request.form.get('company', '').strip()
     use_llm_flag_raw = request.form.get('use_llm_flag')
@@ -131,7 +132,7 @@ def run_pipeline():
 
     unique_suffix = datetime.utcnow().strftime('%Y%m%d%H%M%S') + '_' + uuid.uuid4().hex[:8]
 
-    # If a URL was provided, fetch and save it as an HTML file
+    saved_path = None
     if url:
         try:
             headers = {'User-Agent': 'Mozilla/5.0 (automated)'}
@@ -147,18 +148,17 @@ def run_pipeline():
                 fh.write(resp.content)
         except Exception as e:
             return None, None, None, f'Failed to save fetched HTML: {e}'
-
-    else:
-        # file handling path
-        if not file or file.filename == '':
-            return None, None, None, 'No file selected and no URL provided'
+    elif file and file.filename:
         if not allowed_file(file.filename):
             return None, None, None, 'Unsupported file type. Upload HTML file.'
-
         filename = secure_filename(file.filename)
         saved_name = f"{os.path.splitext(filename)[0]}_{unique_suffix}{os.path.splitext(filename)[1]}"
         saved_path = os.path.join(UPLOAD_FOLDER, saved_name)
         file.save(saved_path)
+    else:
+        # No URL/file; allow if SEC id was provided
+        if not sec_id:
+            return None, None, None, 'No file selected, no URL provided, and no SEC identifier provided.'
 
     # create output paths
     mid_name = f"mid_product_{unique_suffix}.xlsx"
@@ -189,7 +189,11 @@ def run_pipeline():
     python_exec = sys.executable
     script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'unified_pipeline.py'))
 
-    cmd = [python_exec, script_path, '--html', saved_path, '--company', company, '--mid-product', mid_path, '--final', final_path]
+    cmd = [python_exec, script_path, '--company', company, '--mid-product', mid_path, '--final', final_path]
+    if saved_path:
+        cmd.extend(['--html', saved_path])
+    if sec_id:
+        cmd.extend(['--sec-id', sec_id])
     if use_llm:
         cmd.append('--use-llm')
 

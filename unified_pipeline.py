@@ -35,6 +35,7 @@ from openpyxl.styles import Font
 from automodel.src.extract.is_tidy import tidy_is
 from automodel.src.map.map_to_coa import map_labels
 from automodel.src.llm.ollama_client import infer_scale, _llm_chat
+from collections import defaultdict
 
 # Convert extracted values to millions for consistent downstream modeling/display
 SCALE_FACTORS = {
@@ -52,6 +53,13 @@ LAST_SENTIMENT_PATH = BASE_DIR / "automodel/data/interim/last_sentiment.json"
 USE_LLM_EXTRACTION = os.environ.get("USE_LLM_EXTRACTION", "0").lower() in {"1", "true", "yes", "on"}
 USE_LLM_SENTIMENT = os.environ.get("USE_LLM_SENTIMENT", "0").lower() in {"1", "true", "yes", "on"}
 USE_EXTERNAL_OUTLOOK = os.environ.get("USE_EXTERNAL_OUTLOOK", "0").lower() in {"1", "true", "yes", "on"}
+SEC_USER_AGENT = os.environ.get("SEC_USER_AGENT")
+if not SEC_USER_AGENT:
+    SEC_USER_AGENT = "10-K AutoModel (contact@example.com)"
+    print("[WARN] SEC_USER_AGENT not set; using default.")
+
+class UserFacingError(Exception):
+    """Errors that should be surfaced cleanly to the user."""
 
 
 def _heuristic_score(df: pd.DataFrame) -> int:
@@ -277,6 +285,187 @@ def fetch_external_outlook_snippets(company_name: str) -> Tuple[List[str], str]:
         msg = f"External outlook fetch failed: {e}"
         print(f"[WARN] {msg}")
         return [], msg[:180]
+
+
+# ----------------------------- SEC helpers -----------------------------------
+COMPANY_TICKERS_CACHE = BASE_DIR / "automodel/data/interim/company_tickers.json"
+
+
+def resolve_cik_from_sec_id(sec_id: str) -> str:
+    """
+    sec_id can be a ticker or a CIK (with/without leading zeros).
+    Returns 10-digit CIK string or raises UserFacingError.
+    """
+    s = (sec_id or "").strip()
+    if not s:
+        raise UserFacingError("SEC identifier is empty.")
+    if s.isdigit():
+        return str(s).zfill(10)
+
+    # treat as ticker
+    tickers = {}
+    try:
+        if COMPANY_TICKERS_CACHE.exists():
+            tickers = json.loads(COMPANY_TICKERS_CACHE.read_text())
+        else:
+            resp = requests.get("https://www.sec.gov/files/company_tickers.json", headers={"User-Agent": SEC_USER_AGENT, "Accept-Encoding": "gzip, deflate", "Host": "data.sec.gov"}, timeout=5)
+            resp.raise_for_status()
+            tickers = resp.json()
+            COMPANY_TICKERS_CACHE.parent.mkdir(parents=True, exist_ok=True)
+            COMPANY_TICKERS_CACHE.write_text(json.dumps(tickers))
+    except Exception as e:
+        raise UserFacingError(f"Could not download ticker list from SEC: {e}")
+
+    sym = s.upper()
+    for _, v in tickers.items():
+        if v.get("ticker", "").upper() == sym:
+            cik_int = v.get("cik_str")
+            if cik_int is None:
+                break
+            return str(cik_int).zfill(10)
+    raise UserFacingError(f"Could not find CIK for SEC identifier: {sec_id}")
+
+
+def _sec_get(url: str) -> requests.Response:
+    headers = {
+        "User-Agent": SEC_USER_AGENT,
+        "Accept-Encoding": "gzip, deflate",
+        "Host": "data.sec.gov",
+    }
+    resp = requests.get(url, headers=headers, timeout=5)
+    if resp.status_code != 200:
+        raise UserFacingError(f"SEC request failed ({resp.status_code}): {resp.text[:200]}")
+    return resp
+
+
+def get_latest_10k_metadata(cik10: str) -> Dict:
+    url = f"https://data.sec.gov/submissions/CIK{cik10}.json"
+    data = _sec_get(url).json()
+    forms = data.get("filings", {}).get("recent", {})
+    forms_list = list(zip(
+        forms.get("form", []),
+        forms.get("filingDate", []),
+        forms.get("accessionNumber", []),
+        forms.get("periodOfReport", []),
+        forms.get("primaryDocDescription", []),
+        forms.get("reportDate", []),
+        forms.get("fiscalYearEnd", []),
+        forms.get("acceptanceDateTime", []),
+    ))
+    tenks = [f for f in forms_list if f[0] and f[0].upper() == "10-K"]
+    if not tenks:
+        raise UserFacingError("No 10-K filings found for this CIK.")
+    tenks.sort(key=lambda x: x[1], reverse=True)  # filingDate desc
+    form, filingDate, accession, period, desc, repdate, fyend, accept = tenks[0]
+    fiscal_year = None
+    try:
+        fiscal_year = datetime.fromisoformat(period).year if period else None
+    except Exception:
+        fiscal_year = None
+    return {
+        "form": form,
+        "filingDate": filingDate,
+        "accessionNumber": accession,
+        "periodOfReport": period,
+        "fiscalYear": fiscal_year,
+    }
+
+
+def fetch_companyfacts(cik10: str) -> Dict:
+    url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik10}.json"
+    return _sec_get(url).json()
+
+
+REVENUE_CONCEPTS = ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax"]
+COGS_CONCEPTS = ["CostOfRevenue", "CostOfGoodsAndServicesSold"]
+OPERATING_INCOME_CONCEPTS = ["OperatingIncomeLoss"]
+NET_INCOME_CONCEPTS = ["NetIncomeLoss"]
+
+
+def _pick_facts(facts: Dict, concepts: List[str]) -> List[Dict]:
+    rows = []
+    for concept in concepts:
+        fact = facts.get("facts", {}).get("us-gaap", {}).get(concept, {})
+        for unit, items in fact.get("units", {}).items():
+            if unit != "USD":
+                continue
+            for it in items:
+                if it.get("fp") != "FY":
+                    continue
+                if it.get("form", "").upper() != "10-K":
+                    continue
+                fy = it.get("fiscalYear")
+                if fy is None:
+                    continue
+                rows.append({
+                    "concept": concept,
+                    "fiscalYear": int(fy),
+                    "filed": it.get("filed"),
+                    "val": it.get("val")
+                })
+    # pick latest filed per year per concept
+    best = {}
+    for r in rows:
+        key = (r["concept"], r["fiscalYear"])
+        cur = best.get(key)
+        if cur is None or (r.get("filed") or "") > (cur.get("filed") or ""):
+            best[key] = r
+    return list(best.values())
+
+
+def build_income_statement_from_companyfacts(companyfacts: Dict, tenk_meta: Dict) -> pd.DataFrame:
+    """
+    Build a tidy DataFrame with label_raw, year, value, scale_hint from companyfacts.
+    Values are converted to millions for consistency with downstream steps.
+    """
+    records = []
+    concept_map = {
+        "Revenue": REVENUE_CONCEPTS,
+        "COGS": COGS_CONCEPTS,
+        "Operating Income (EBIT)": OPERATING_INCOME_CONCEPTS,
+        "Net Income": NET_INCOME_CONCEPTS,
+    }
+    facts = companyfacts
+    picked = []
+    for label, concepts in concept_map.items():
+        picked.extend(_pick_facts(facts, concepts))
+
+    if not picked:
+        raise UserFacingError("No annual facts found in SEC companyfacts.")
+
+    # group by label/year
+    grouped = defaultdict(list)
+    for r in picked:
+        label = None
+        for k, concepts in concept_map.items():
+            if r["concept"] in concepts:
+                label = k
+                break
+        if not label:
+            continue
+        grouped[(label, r["fiscalYear"])].append(r)
+
+    for (label, year), items in grouped.items():
+        # choose latest filed
+        items.sort(key=lambda x: x.get("filed") or "", reverse=True)
+        val = items[0].get("val")
+        if val is None:
+            continue
+        try:
+            val_num = float(val) / 1_000_000.0  # convert to millions
+        except Exception:
+            continue
+        records.append({
+            "label_raw": label,
+            "year": int(year),
+            "value": val_num,
+            "scale_hint": "millions",
+        })
+
+    df = pd.DataFrame(records)
+    if df.empty:
+        raise UserFacingError("Could not build income statement from SEC companyfacts.")
+    return df
 
 
 def _extract_outlook_snippet(raw_html: str, max_len: int = 8000, window: int = 800) -> str:
@@ -857,6 +1046,32 @@ def step1_extract_from_html(html_path: Path, skip_llm: bool = True) -> Path:
             return csv_path
 
     raise SystemExit("No valid income statement table found after validation.")
+
+
+def step1_extract_from_sec(sec_id: str, skip_llm: bool = True) -> Path:
+    """
+    Step 1 (SEC path): use SEC APIs to build tidy IS and map it.
+    """
+    print("\n" + "="*60)
+    print("STEP 1: Extracting financial data from SEC APIs")
+    print("="*60)
+
+    cik10 = resolve_cik_from_sec_id(sec_id)
+    meta = get_latest_10k_metadata(cik10)
+    facts = fetch_companyfacts(cik10)
+    tidy_df = build_income_statement_from_companyfacts(facts, meta)
+
+    csv_path = _map_and_save(
+        tidy_df,
+        hdr_blob="sec_api",
+        use_llm_tables=False,
+        table_idx=-1,
+        skip_llm=skip_llm,
+        unit_hint="millions"
+    )
+    if not csv_path:
+        raise UserFacingError("Could not map SEC income statement safely.")
+    return csv_path
 
 
 def step2_create_mid_product(
@@ -1605,36 +1820,44 @@ def _apply_projection_formulas(final_path: Path) -> None:
 
 
 def main(
-    html_path: Path,
+    html_path: Optional[Path] = None,
     mid_product_path: Optional[Path] = None,
     final_output_path: Optional[Path] = None,
     company_name: str = "Company",
-    skip_llm: bool = True
+    skip_llm: bool = True,
+    sec_id: Optional[str] = None,
 ):
     """
     Run the complete pipeline from 10-K HTML to Final Excel projections.
     
     Args:
-        html_path: Path to 10-K HTML filing
+        html_path: Path to 10-K HTML filing (optional if sec_id provided)
         mid_product_path: Path for Mid-Product.xlsx (default: Mid-Product.xlsx)
         final_output_path: Path for Final.xlsx (default: Final.xlsx)
         company_name: Company name for display
         skip_llm: If True, skip LLM-based label mapping
+        sec_id: Optional SEC ticker/CIK to fetch via SEC APIs
     """
     
     print("\n" + "#"*60)
     print("# UNIFIED 10-K FINANCIAL ANALYSIS PIPELINE")
     print("#"*60)
     
-    html_path = Path(html_path)
+    if html_path:
+        html_path = Path(html_path)
     mid_product_path = Path(mid_product_path or "Mid-Product.xlsx")
     final_output_path = Path(final_output_path or "Final.xlsx")
     template_path = Path("final-project_finmod-main/Inputs_Historical/Baseline IS.xlsx")
     
     try:
         globals()['company_name_global'] = company_name
-        # Step 1: Extract
-        csv_path = step1_extract_from_html(html_path, skip_llm=skip_llm)
+        # Step 1: Extract (SEC path takes precedence if provided)
+        if sec_id:
+            csv_path = step1_extract_from_sec(sec_id, skip_llm=skip_llm)
+        else:
+            if not html_path:
+                raise UserFacingError("No HTML or SEC identifier provided for extraction.")
+            csv_path = step1_extract_from_html(html_path, skip_llm=skip_llm)
         
         # Step 2: Create Mid-Product
         step2_create_mid_product(
@@ -1654,6 +1877,9 @@ def main(
         print(f"Final Output: {final_output_path}")
         print("#"*60 + "\n")
         
+    except UserFacingError as e:
+        print(f"\n❌ Pipeline failed: {e}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
         print(f"\n❌ Pipeline failed: {e}", file=sys.stderr)
         import traceback
@@ -1669,8 +1895,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--html",
-        required=True,
-        help="Path to 10-K HTML filing"
+        required=False,
+        help="Path to 10-K HTML filing (optional if --sec-id is provided)"
     )
     parser.add_argument(
         "--mid-product",
@@ -1692,6 +1918,10 @@ if __name__ == "__main__":
         action="store_true",
         help="Use LLM for label mapping (default: disabled for speed)"
     )
+    parser.add_argument(
+        "--sec-id",
+        help="SEC ticker or CIK (optional). If provided, use SEC APIs instead of HTML scraping."
+    )
     
     args = parser.parse_args()
     
@@ -1700,5 +1930,6 @@ if __name__ == "__main__":
         mid_product_path=args.mid_product,
         final_output_path=args.final,
         company_name=args.company,
-        skip_llm=not args.use_llm
+        skip_llm=not args.use_llm,
+        sec_id=args.sec_id
     )
