@@ -247,23 +247,29 @@ def fetch_external_outlook_snippets(company_name: str) -> Tuple[List[str], str]:
         print(f"[INFO] NewsAPI articles before filtering: {len(articles)}")
         snippets = []
         seen_titles = set()
-        company_lower = (company_name or "").lower()
         for art in articles:
             title = art.get("title") or ""
             desc = art.get("description") or ""
-            content = (art.get("content") or "")[:400]
-            if title.lower() in seen_titles:
+            content = (art.get("content") or "")
+            if title and title.lower() in seen_titles:
                 continue
-            text = " ".join([title, desc, content]).strip()
-            if not text:
-                continue
-            if company_lower and not (company_lower in title.lower() or company_lower in desc.lower()):
-                # keep a very light relevance check to the company name
-                continue
-            seen_titles.add(title.lower())
-            snippets.append(text[:500])
+            if title:
+                seen_titles.add(title.lower())
+            snippet = f"{title}. {desc}. {content[:300]}".strip()
+            snippet = " ".join(snippet.split())
+            if snippet:
+                snippets.append(snippet[:500])
             if len(snippets) >= 5:
                 break
+        # Fallback: if we have articles but no snippets, use title+desc for first few
+        if not snippets and articles:
+            for art in articles[:3]:
+                title = art.get("title") or ""
+                desc = art.get("description") or ""
+                snippet = f"{title}. {desc}".strip()
+                snippet = " ".join(snippet.split())
+                if snippet:
+                    snippets.append(snippet[:300])
         debug_str = f"ok; articles={len(articles)}; snippets={len(snippets)}"
         print(f"[INFO] external_outlook_snippets: company={company_name}, snippets_after_filter={len(snippets)}")
         return snippets, debug_str
