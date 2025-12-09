@@ -56,6 +56,7 @@ EXTRACTION_SOURCE_TAG = "HTML"
 USE_LLM_EXTRACTION = os.environ.get("USE_LLM_EXTRACTION", "0").lower() in {"1", "true", "yes", "on"}
 USE_LLM_SENTIMENT = os.environ.get("USE_LLM_SENTIMENT", "0").lower() in {"1", "true", "yes", "on"}
 USE_EXTERNAL_OUTLOOK = os.environ.get("USE_EXTERNAL_OUTLOOK", "0").lower() in {"1", "true", "yes", "on"}
+USE_SEC_API = os.environ.get("USE_SEC_API", "0").lower() in {"1", "true", "yes", "on"}
 SEC_USER_AGENT = os.environ.get("SEC_USER_AGENT")
 if not SEC_USER_AGENT or SEC_USER_AGENT.strip().lower() in {"", "default", "myapp"}:
     SEC_USER_AGENT = "10-K AutoModel / student project (contact: your_email@example.com)"
@@ -1867,9 +1868,10 @@ def main(
         source_tag = "HTML"
         sec_failed = False
         html_available = html_path is not None
+        use_sec = USE_SEC_API and bool(sec_id)
 
-        # Step 1: Extract with SEC preferred when provided
-        if sec_id:
+        # Step 1: Extract with SEC preferred when enabled and provided
+        if use_sec:
             source_tag = "SEC_API"
             try:
                 csv_path = step1_extract_from_sec(sec_id, skip_llm=skip_llm)
@@ -1883,14 +1885,14 @@ def main(
 
         if csv_path is None:
             if html_available:
-                if sec_id and sec_failed:
+                if use_sec and sec_failed:
                     source_tag = "SEC_API+HTML_FALLBACK"
-                    print("Falling back to HTML extraction after SEC failure.", file=sys.stderr)
+                    print("Using HTML extraction path (SEC disabled or failed).", file=sys.stderr)
                 else:
                     source_tag = "HTML"
                 csv_path = step1_extract_from_html(html_path, skip_llm=skip_llm)
             else:
-                raise UserFacingError("Could not safely extract an income statement: SEC API unavailable and no HTML source to parse.")
+                raise UserFacingError("Could not safely extract an income statement: SEC API disabled or unavailable and no HTML source provided.")
         
         # Step 2: Create Mid-Product
         # Record source tag globally for later Excel note
@@ -1956,7 +1958,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--sec-id",
-        help="SEC ticker or CIK (optional). If provided, use SEC APIs instead of HTML scraping."
+        help="SEC ticker or CIK (optional). If provided, use SEC APIs instead of HTML scraping (only if USE_SEC_API=1)."
     )
     
     args = parser.parse_args()
