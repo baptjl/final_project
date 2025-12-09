@@ -12,11 +12,13 @@ import os
 import sys
 import re
 import json
+import traceback
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 import subprocess
 import requests
 from datetime import datetime, timedelta
+from urllib.parse import urlparse
 
 # Add project paths to sys.path
 sys.path.insert(0, str(Path.cwd()))
@@ -50,13 +52,14 @@ BASE_DIR = Path(__file__).resolve().parent
 LAST_SUMMARY_PATH = BASE_DIR / "automodel/data/interim/last_summary.csv"
 LAST_META_PATH = BASE_DIR / "automodel/data/interim/last_meta.json"
 LAST_SENTIMENT_PATH = BASE_DIR / "automodel/data/interim/last_sentiment.json"
+EXTRACTION_SOURCE_TAG = "HTML"
 USE_LLM_EXTRACTION = os.environ.get("USE_LLM_EXTRACTION", "0").lower() in {"1", "true", "yes", "on"}
 USE_LLM_SENTIMENT = os.environ.get("USE_LLM_SENTIMENT", "0").lower() in {"1", "true", "yes", "on"}
 USE_EXTERNAL_OUTLOOK = os.environ.get("USE_EXTERNAL_OUTLOOK", "0").lower() in {"1", "true", "yes", "on"}
 SEC_USER_AGENT = os.environ.get("SEC_USER_AGENT")
-if not SEC_USER_AGENT:
-    SEC_USER_AGENT = "10-K AutoModel (contact@example.com)"
-    print("[WARN] SEC_USER_AGENT not set; using default.")
+if not SEC_USER_AGENT or SEC_USER_AGENT.strip().lower() in {"", "default", "myapp"}:
+    SEC_USER_AGENT = "10-K AutoModel / student project (contact: your_email@example.com)"
+    print("[WARN] SEC_USER_AGENT is not set or too generic; using a conservative default. Set SEC_USER_AGENT for SEC API calls.")
 
 class UserFacingError(Exception):
     """Errors that should be surfaced cleanly to the user."""
@@ -308,8 +311,7 @@ def resolve_cik_from_sec_id(sec_id: str) -> str:
         if COMPANY_TICKERS_CACHE.exists():
             tickers = json.loads(COMPANY_TICKERS_CACHE.read_text())
         else:
-            resp = requests.get("https://www.sec.gov/files/company_tickers.json", headers={"User-Agent": SEC_USER_AGENT, "Accept-Encoding": "gzip, deflate", "Host": "data.sec.gov"}, timeout=5)
-            resp.raise_for_status()
+            resp = _sec_get("https://www.sec.gov/files/company_tickers.json")
             tickers = resp.json()
             COMPANY_TICKERS_CACHE.parent.mkdir(parents=True, exist_ok=True)
             COMPANY_TICKERS_CACHE.write_text(json.dumps(tickers))
@@ -327,14 +329,20 @@ def resolve_cik_from_sec_id(sec_id: str) -> str:
 
 
 def _sec_get(url: str) -> requests.Response:
+    parsed = urlparse(url)
+    host = parsed.netloc or "data.sec.gov"
     headers = {
         "User-Agent": SEC_USER_AGENT,
         "Accept-Encoding": "gzip, deflate",
-        "Host": "data.sec.gov",
+        "Host": host,
     }
+    print(f"[INFO] SEC GET {url}")
     resp = requests.get(url, headers=headers, timeout=5)
+    print(f"[INFO] SEC status {resp.status_code} for {url}")
     if resp.status_code != 200:
-        raise UserFacingError(f"SEC request failed ({resp.status_code}): {resp.text[:200]}")
+        text = resp.text[:400]
+        print(f"[WARN] SEC error {resp.status_code} body: {text}")
+        raise UserFacingError(f"SEC request failed ({resp.status_code}): {text}")
     return resp
 
 
@@ -1660,16 +1668,20 @@ def _apply_projection_formulas(final_path: Path) -> None:
         s["B5"] = "Yes" if external_requested else "No"
         s["A6"] = "External outlook used?"
         s["B6"] = "Yes" if external_used else "No"
-        s["A7"] = "Note"
-        s["B7"] = sentiment_note
+        s["A7"] = "Income statement source"
+        s["B7"] = globals().get("EXTRACTION_SOURCE_TAG", "HTML")
+        s["A8"] = "Note"
+        s["B8"] = sentiment_note
+        debug_row_offset = 0
         if newsapi_debug:
-            s["A8"] = "NewsAPI debug"
-            s["B8"] = newsapi_debug
+            s["A9"] = "NewsAPI debug"
+            s["B9"] = newsapi_debug
+            debug_row_offset = 1
         if sentiment_result:
             tenk_ev = sentiment_result.get("tenk_evidence", [])[:3]
             news_ev = sentiment_result.get("news_evidence", [])[:3]
-            start_ev = 10 if newsapi_debug else 9
-            s["A9"] = "10-K Evidence"
+            start_ev = 10 + debug_row_offset
+            s.cell(row=start_ev - 1, column=1, value="10-K Evidence")
             for i, q in enumerate(tenk_ev, start=start_ev):
                 s.cell(row=i, column=2, value=q)
             news_start = start_ev + max(3, len(tenk_ev)) + 1
@@ -1851,15 +1863,39 @@ def main(
     
     try:
         globals()['company_name_global'] = company_name
-        # Step 1: Extract (SEC path takes precedence if provided)
+        csv_path = None
+        source_tag = "HTML"
+        sec_failed = False
+        html_available = html_path is not None
+
+        # Step 1: Extract with SEC preferred when provided
         if sec_id:
-            csv_path = step1_extract_from_sec(sec_id, skip_llm=skip_llm)
-        else:
-            if not html_path:
-                raise UserFacingError("No HTML or SEC identifier provided for extraction.")
-            csv_path = step1_extract_from_html(html_path, skip_llm=skip_llm)
+            source_tag = "SEC_API"
+            try:
+                csv_path = step1_extract_from_sec(sec_id, skip_llm=skip_llm)
+            except UserFacingError as e:
+                print(f"SEC path failed: {e}", file=sys.stderr)
+                sec_failed = True
+            except Exception as e:
+                traceback.print_exc(file=sys.stderr)
+                print("SEC path failed with unexpected error", file=sys.stderr)
+                sec_failed = True
+
+        if csv_path is None:
+            if html_available:
+                if sec_id and sec_failed:
+                    source_tag = "SEC_API+HTML_FALLBACK"
+                    print("Falling back to HTML extraction after SEC failure.", file=sys.stderr)
+                else:
+                    source_tag = "HTML"
+                csv_path = step1_extract_from_html(html_path, skip_llm=skip_llm)
+            else:
+                raise UserFacingError("Could not safely extract an income statement: SEC API unavailable and no HTML source to parse.")
         
         # Step 2: Create Mid-Product
+        # Record source tag globally for later Excel note
+        globals()["EXTRACTION_SOURCE_TAG"] = source_tag
+
         step2_create_mid_product(
             csv_path,
             template_path,

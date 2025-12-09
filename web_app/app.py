@@ -22,6 +22,7 @@ load_dotenv()
 BASE_DIR = os.path.abspath(os.path.dirname(__file__)) + os.sep + ".."
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 OUTPUT_FOLDER = os.path.join(os.path.dirname(__file__), 'outputs')
+DATABASE_PATH = os.path.join(os.path.dirname(__file__), "users.db")
 ALLOWED_EXTENSIONS = {'.html', '.htm'}
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -39,8 +40,7 @@ def allowed_file(filename):
 
 
 def get_db():
-    db_path = os.path.join(os.path.dirname(__file__), "users.db")
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -214,12 +214,19 @@ def run_pipeline():
     if not os.path.exists(final_path) or os.path.getsize(final_path) == 0:
         return None, stdout, stderr, "Final file not found after processing."
 
+    if sec_id and not saved_path:
+        source_type = "sec_api"
+    elif sec_id and saved_path:
+        source_type = "sec_api+html"
+    else:
+        source_type = "url" if url else "file"
+
     return {
         "final_path": final_path,
         "final_download_name": final_download_name,
         "company": company,
         "url_used": url if url else None,
-        "source_type": "url" if url else "file"
+        "source_type": source_type
     }, stdout, stderr, None
 
 
@@ -419,7 +426,15 @@ def login():
         if row and check_password_hash(row["password_hash"], password):
             session["user_id"] = row["id"]
             session["email"] = row["email"]
+            try:
+                app.logger.info("User logged in: %s (id=%s)", email, row["id"])
+            except Exception:
+                pass
             return redirect(url_for('home'))
+        try:
+            app.logger.info("Login failed for email: %s", email)
+        except Exception:
+            pass
         flash("Invalid email/password")
     return render_template('login.html')
 
@@ -442,7 +457,12 @@ def signup():
             cur = conn.cursor()
             cur.execute("INSERT INTO users (email, password_hash) VALUES (?, ?)", (email, pw_hash))
             conn.commit()
+            user_id = cur.lastrowid
             conn.close()
+            try:
+                app.logger.info("User signed up: %s (id=%s)", email, user_id)
+            except Exception:
+                pass
             return redirect(url_for('login'))
         except sqlite3.IntegrityError:
             flash("That email is already registered.")
